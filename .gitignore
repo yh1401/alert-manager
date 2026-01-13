@@ -1,0 +1,6 @@
+.devcontainer
+.pnpm-store
+.vscode
+backend/tools/promtool/
+*.md
+*.log

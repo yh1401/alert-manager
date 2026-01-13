@@ -1,0 +1,2 @@
+# PostgreSQL 连接配置
+dsn: "host=127.0.0.1 user=postgres password=123456 dbname=alert_manager port=5432 sslmode=disable TimeZone=Asia/Shanghai"

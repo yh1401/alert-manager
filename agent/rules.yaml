@@ -1,0 +1,14 @@
+# Rule Group: TestRule
+groups:
+  - name: default-group111222
+    rules:
+      - alert: teest
+        expr: 1 == bool 112323
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: '测试拉取返回历史'
+          description: ''
+
+---
