@@ -678,23 +678,8 @@ func (h *RuleHandler) RollbackRule(c *gin.Context) {
 		return
 	}
 
-	// 2) 创建一个新的版本（版本号 +1），内容与目标版本一致
+	// 2) 计算新版本号（注意：不需要将新版本立即写入历史表，只有在下次更新时才会归档当前版本）
 	newVersionNumber := rule.Version + 1
-	newSnapshot := models.RuleGroupVersion{
-		RuleGroupID: rule.ID,
-		NodeID:      rule.NodeID,
-		FilePath:    rule.FilePath,
-		Name:        name,
-		FileContent: content,
-		Version:     newVersionNumber,
-		Comment:     req.Comment,
-		CreatedAt:   time.Now(),
-	}
-	if err := tx.Create(&newSnapshot).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create new version: " + err.Error()})
-		return
-	}
 
 	// 3) 更新主表到新版本
 	updates := map[string]interface{}{
