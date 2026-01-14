@@ -161,6 +161,55 @@ func FetchConfig() {
 	ReportSyncStatus(reportHash, fetchStatus, reloadStatus, errMsg)
 }
 
+// CollectLocalRules 收集本地配置目录下的规则文件
+func CollectLocalRules() ([]filePayload, error) {
+	var results []filePayload
+	for _, p := range config.GlobalConfig.RulePaths {
+		info, err := os.Stat(p)
+		if err != nil {
+			log.Printf("⚠️ 跳过无法访问的路径 %s: %v", p, err)
+			continue
+		}
+		if !info.IsDir() {
+			// 单个文件
+			content, err := os.ReadFile(p)
+			if err != nil {
+				log.Printf("⚠️ 读取文件失败 %s: %v", p, err)
+				continue
+			}
+			abs, _ := filepath.Abs(p)
+			results = append(results, filePayload{
+				FilePath: abs,
+				Content:  string(content),
+			})
+		} else {
+			// 目录遍历
+			err := filepath.Walk(p, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				if !info.IsDir() && (strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".rule")) {
+					content, err := os.ReadFile(path)
+					if err != nil {
+						log.Printf("⚠️ 读取文件失败 %s: %v", path, err)
+						return nil
+					}
+					abs, _ := filepath.Abs(path)
+					results = append(results, filePayload{
+						FilePath: abs,
+						Content:  string(content),
+					})
+				}
+				return nil
+			})
+			if err != nil {
+				log.Printf("⚠️ 遍历目录失败 %s: %v", p, err)
+			}
+		}
+	}
+	return results, nil
+}
+
 // GetOrRegisterIdentity 获取或注册身份
 func GetOrRegisterIdentity() error {
 	// 1. 尝试读取本地状态文件
@@ -185,9 +234,16 @@ func GetOrRegisterIdentity() error {
 		}
 	}
 
-	reqBody := map[string]string{
+	// 收集本地规则文件
+	files, err := CollectLocalRules()
+	if err != nil {
+		log.Printf("⚠️ 收集本地规则失败: %v", err)
+	}
+
+	reqBody := map[string]interface{}{
 		"hostname":   hostname,
 		"ip_address": ip,
+		"files":      files,
 	}
 	jsonBody, _ := json.Marshal(reqBody)
 

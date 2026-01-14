@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +88,28 @@ func (h *AgentHandler) createNodeAuditLog(c *gin.Context, userID int, resourceID
 		UserID:       userID,
 		Username:     username,
 		ResourceType: "node",
+		ResourceID:   resourceID,
+		ResourceName: resourceName,
+		Action:       action,
+		OldValue:     string(oldJSON),
+		NewValue:     string(newJSON),
+		Description:  description,
+		IPAddress:    c.ClientIP(),
+		CreatedAt:    time.Now(),
+	}
+	h.DB.Create(&log)
+}
+
+// helper: create audit log for rule operations
+func (h *AgentHandler) createRuleAuditLog(c *gin.Context, userID int, resourceID int, resourceName string, action string, oldValue interface{}, newValue interface{}, description string) {
+	username := h.getUsername(userID)
+	oldJSON, _ := json.Marshal(oldValue)
+	newJSON, _ := json.Marshal(newValue)
+
+	log := models.AuditLog{
+		UserID:       userID,
+		Username:     username,
+		ResourceType: "rule",
 		ResourceID:   resourceID,
 		ResourceName: resourceName,
 		Action:       action,
@@ -232,9 +255,14 @@ func (h *AgentHandler) UpdateHeartbeat(c *gin.Context) {
 
 // RegisterNode 处理 Agent 自动注册
 func (h *AgentHandler) RegisterNode(c *gin.Context) {
+	type filePayload struct {
+		FilePath string `json:"file_path"`
+		Content  string `json:"content"`
+	}
 	var req struct {
-		Hostname  string `json:"hostname"`
-		IPAddress string `json:"ip_address"`
+		Hostname  string        `json:"hostname"`
+		IPAddress string        `json:"ip_address"`
+		Files     []filePayload `json:"files"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -256,9 +284,60 @@ func (h *AgentHandler) RegisterNode(c *gin.Context) {
 
 	// 记录审计日志（系统自动注册，userID 为 0）
 	h.createNodeAuditLog(c, 0, newNode.ID, newNode.Name, "create", nil, map[string]interface{}{
-		"name":       newNode.Name,
-		"ip_address": newNode.IPAddress,
+		"name":        newNode.Name,
+		"ip_address":  newNode.IPAddress,
+		"files_count": len(req.Files),
 	}, fmt.Sprintf("节点自动注册: %s (%s)", newNode.Name, newNode.IPAddress))
+
+	// 处理随节点注册上报的初始规则文件
+	for _, f := range req.Files {
+		if strings.TrimSpace(f.Content) == "" {
+			continue
+		}
+
+		// 简单的名称生成策略：取文件名
+		name := filepath.Base(f.FilePath)
+		if name == "." || name == "/" {
+			name = "imported-rule"
+		}
+
+		rule := models.RuleGroup{
+			NodeID:      newNode.ID,
+			FilePath:    f.FilePath,
+			Name:        name,
+			FileContent: f.Content,
+			IsActive:    true,
+			Version:     1,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+
+		if err := h.DB.Create(&rule).Error; err != nil {
+			fmt.Printf("Error creating initial rule for node %d: %v\n", newNode.ID, err)
+			continue
+		}
+
+		// 创建初始版本历史
+		version := models.RuleGroupVersion{
+			RuleGroupID: rule.ID,
+			NodeID:      newNode.ID,
+			FilePath:    rule.FilePath,
+			Name:        rule.Name,
+			FileContent: rule.FileContent,
+			Version:     rule.Version,
+			Comment:     "Auto-imported during node registration",
+			CreatedAt:   time.Now(),
+			CreatedBy:   "system",
+		}
+		h.DB.Create(&version)
+
+		// 记录规则创建审计日志
+		h.createRuleAuditLog(c, 0, rule.ID, rule.Name, "create", nil, map[string]interface{}{
+			"node_id":   rule.NodeID,
+			"file_path": rule.FilePath,
+			"version":   1,
+		}, fmt.Sprintf("自动导入规则: %s (节点注册)", rule.Name))
+	}
 
 	c.JSON(200, gin.H{"node_id": newNode.ID, "message": "registered successfully"})
 }
