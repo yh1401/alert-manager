@@ -24,12 +24,27 @@ type filePayload struct {
 	Content  string `json:"content"`
 }
 
+func GetLocalIP() string {
+	addrs, _ := net.InterfaceAddrs()
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
+		}
+	}
+	return ""
+}
+
 func StartHeartbeat() {
 	ticker := time.NewTicker(config.GlobalConfig.HeartbeatInt)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		url := fmt.Sprintf("%s/api/agent/heartbeat?node_id=%s", config.GlobalConfig.BackendURL, config.GlobalConfig.NodeID)
+		currentIP := GetLocalIP()
+		url := fmt.Sprintf("%s/api/agent/heartbeat?node_id=%s&ip_address=%s",
+			config.GlobalConfig.BackendURL,
+			config.GlobalConfig.NodeID,
+			currentIP,
+		)
 		resp, err := http.Post(url, "application/json", nil)
 		if err != nil {
 			log.Printf("⚠️ 心跳上报失败: %v", err)
@@ -223,16 +238,7 @@ func GetOrRegisterIdentity() error {
 	// 2. 本地无身份，向后端注册
 	log.Println("⚠️ 未找到本地身份，正在向后端注册...")
 	hostname, _ := os.Hostname()
-
-	// 获取本机 IP (简单实现)
-	var ip string
-	addrs, _ := net.InterfaceAddrs()
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			ip = ipnet.IP.String()
-			break
-		}
-	}
+	ip := GetLocalIP()
 
 	// 收集本地规则文件
 	files, err := CollectLocalRules()

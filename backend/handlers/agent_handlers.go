@@ -245,8 +245,17 @@ func (h *AgentHandler) UpdateHeartbeat(c *gin.Context) {
 		return
 	}
 
-	// 更新节点的最后心跳时间
-	if err := h.DB.Model(&models.Node{}).Where("id = ?", nodeID).Update("last_heartbeat", time.Now()).Error; err != nil {
+	updates := map[string]interface{}{
+		"last_heartbeat": time.Now(),
+	}
+
+	// [新增] 动态更新 IP
+	if ip := c.Query("ip_address"); ip != "" {
+		updates["ip_address"] = ip
+	}
+
+	// 使用 Updates 支持多字段更新
+	if err := h.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
 		c.JSON(500, gin.H{"error": "failed to update heartbeat"})
 		return
 	}
