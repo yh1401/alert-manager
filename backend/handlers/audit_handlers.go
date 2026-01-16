@@ -15,7 +15,7 @@ type AuditHandler struct {
 	BaseHandler
 }
 
-// CreateAuditLog 创建审计日志记录（工具函数，供其他 handler 调用）
+// CreateAuditLog 创建审计日志记录
 func (h *AuditHandler) CreateAuditLog(c *gin.Context, userID int, username string, resourceType string, resourceID int, resourceName string, action string, oldValue interface{}, newValue interface{}, description string) error {
 	// 将旧值和新值序列化为 JSON
 	oldJSON, _ := json.Marshal(oldValue)

@@ -6,220 +6,59 @@
                     <span class="title">{{
                         isEditMode ? "编辑规则" : "新建规则"
                     }}</span>
-                    <el-button @click="goBack" type="info" plain size="small"
-                        >返回列表</el-button
-                    >
+                    <el-button @click="goBack" type="info" plain size="small">返回列表</el-button>
                 </div>
             </template>
 
-            <el-form
-                :model="ruleForm"
-                :rules="rules"
-                ref="ruleFormRef"
-                label-width="100px"
-            >
+            <el-form :model="ruleForm" :rules="rules" ref="ruleFormRef" label-width="100px">
                 <el-form-item label="规则名称" prop="name">
-                    <el-input
-                        v-model="ruleForm.name"
-                        placeholder="输入规则名称"
-                    ></el-input>
+                    <el-input v-model="ruleForm.name" placeholder="输入规则名称"></el-input>
                 </el-form-item>
 
                 <el-form-item label="所属节点" prop="node_id">
-                    <el-select
-                        v-model="ruleForm.node_id"
-                        placeholder="选择节点"
-                        filterable
-                        clearable
-                    >
-                        <el-option
-                            v-for="n in nodeOptions"
-                            :key="n.id"
-                            :label="`${n.name} (${n.ip_address || '-'})`"
-                            :value="n.id"
-                        />
+                    <el-select v-model="ruleForm.node_id" placeholder="选择节点" filterable clearable>
+                        <el-option v-for="n in nodeOptions" :key="n.id" :label="`${n.name} (${n.ip_address || '-'})`"
+                            :value="n.id" />
                     </el-select>
                 </el-form-item>
 
                 <el-form-item label="文件路径" prop="file_path">
-                    <el-input
-                        v-model="ruleForm.file_path"
-                        placeholder="输入绝对路径，例如 /etc/vmalert/rules.yaml"
-                    ></el-input>
+                    <el-input v-model="ruleForm.file_path" placeholder="输入绝对路径，例如 /etc/vmalert/rules.yaml"></el-input>
                 </el-form-item>
 
                 <el-form-item label="规则内容" prop="file_content">
                     <!-- 左右分栏布局 -->
                     <div class="editor-preview-layout">
                         <!-- 左侧：编辑器 -->
-                        <div class="editor-section">
-                            <div class="section-title">
-                                <span>规则内容编辑</span>
-                                <div
-                                    class="validation-indicator"
-                                    v-if="validationResult"
-                                >
-                                    <el-icon
-                                        v-if="validationResult.success"
-                                        class="success-icon"
-                                        ><CircleCheck
-                                    /></el-icon>
-                                    <el-icon v-else class="error-icon"
-                                        ><CircleClose
-                                    /></el-icon>
-                                </div>
-                            </div>
-
-                            <textarea
-                                v-model="ruleForm.file_content"
-                                class="yaml-editor"
-                                placeholder="输入 YAML 格式的 Prometheus 告警规则..."
-                                @input="onContentChange"
-                            ></textarea>
-
-                            <div
-                                class="validation-panel"
-                                v-if="validationResult"
-                            >
-                                <div
-                                    class="validation-status"
-                                    :class="
-                                        validationResult.success
-                                            ? 'success'
-                                            : 'error'
-                                    "
-                                >
-                                    <el-icon v-if="validationResult.success"
-                                        ><CircleCheck
-                                    /></el-icon>
-                                    <el-icon v-else><CircleClose /></el-icon>
-                                    <span>{{
-                                        validationResult.success
-                                            ? "✅ 语法验证通过"
-                                            : "❌ 语法验证失败"
-                                    }}</span>
-                                </div>
-                                <pre
-                                    v-if="validationResult.output"
-                                    class="validation-output"
-                                    >{{ validationResult.output }}</pre
-                                >
-                            </div>
-
-                            <div class="validation-loading" v-if="isValidating">
-                                <el-icon class="is-loading"
-                                    ><Loading
-                                /></el-icon>
-                                <span>验证中...</span>
-                            </div>
-                        </div>
+                        <YamlEditor v-model="ruleForm.file_content" :validation-result="validationResult"
+                            :is-validating="isValidating" @change="onContentChange" />
 
                         <!-- 右侧：预览面板 -->
-                        <div class="preview-section">
-                            <div class="section-title">规则预览</div>
-                            <div class="preview-panel">
-                                <div
-                                    v-if="parsedRules.length > 0"
-                                    class="preview-content"
-                                >
-                                    <div
-                                        v-for="(group, idx) in parsedRules"
-                                        :key="idx"
-                                        class="rule-group-preview"
-                                    >
-                                        <h5>
-                                            {{ group.name || "未命名分组" }}
-                                        </h5>
-                                        <div
-                                            v-for="(rule, rIdx) in group.rules"
-                                            :key="rIdx"
-                                            class="rule-item-preview"
-                                        >
-                                            <div class="rule-alert-name">
-                                                <el-tag
-                                                    type="warning"
-                                                    size="small"
-                                                    >{{ rule.alert }}</el-tag
-                                                >
-                                            </div>
-                                            <div class="rule-expr">
-                                                <strong>条件:</strong
-                                                ><br /><code>{{
-                                                    rule.expr
-                                                }}</code>
-                                            </div>
-                                            <div
-                                                class="rule-for"
-                                                v-if="rule.for"
-                                            >
-                                                <strong>持续:</strong>
-                                                {{ rule.for }}
-                                            </div>
-                                            <div
-                                                class="rule-labels"
-                                                v-if="rule.labels"
-                                            >
-                                                <strong>标签:</strong><br />
-                                                <el-tag
-                                                    v-for="(
-                                                        val, key
-                                                    ) in rule.labels"
-                                                    :key="key"
-                                                    size="small"
-                                                    style="
-                                                        margin-top: 4px;
-                                                        margin-right: 4px;
-                                                    "
-                                                    >{{ key }}:
-                                                    {{ val }}</el-tag
-                                                >
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <el-empty
-                                    v-else
-                                    description="暂无规则预览"
-                                    :image-size="60"
-                                ></el-empty>
-                            </div>
-                        </div>
+                        <RulePreview :groups="parsedRules" />
                     </div>
                 </el-form-item>
 
                 <el-form-item label="版本说明" prop="comment" v-if="isEditMode">
-                    <el-input
-                        v-model="ruleForm.comment"
-                        type="textarea"
-                        :rows="2"
-                        placeholder="描述本次修改的内容（可选）"
-                    ></el-input>
+                    <el-input v-model="ruleForm.comment" type="textarea" :rows="2"
+                        placeholder="描述本次修改的内容（可选）"></el-input>
                 </el-form-item>
             </el-form>
 
             <div class="action-buttons">
-                <el-button
-                    type="primary"
-                    @click="handleSave"
-                    :loading="isSaving"
-                    :disabled="isSaving || isValidating"
-                    :title="
-                        isValidating ? '规则语法正在校验中，保存已禁用' : ''
-                    "
-                >
+                <el-button type="primary" @click="handleSave" :loading="isSaving"
+                    :disabled="isSaving || isValidating" :title="isValidating ? '规则语法正在校验中，保存已禁用' : ''
+                    ">
                     {{
                         isEditMode
                             ? isValidating
                                 ? "验证中..."
                                 : "保存修改"
                             : isValidating
-                              ? "验证中..."
-                              : "创建规则"
+                                ? "验证中..."
+                                : "创建规则"
                     }}
                 </el-button>
-                <el-button @click="goBack" :disabled="isSaving || isValidating"
-                    >取消</el-button
-                >
+                <el-button @click="goBack" :disabled="isSaving || isValidating">取消</el-button>
             </div>
         </el-card>
     </div>
@@ -229,7 +68,6 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { CircleCheck, CircleClose, Loading } from "@element-plus/icons-vue";
 import axios from "axios";
 import jsyaml from "js-yaml";
 import {
@@ -237,6 +75,8 @@ import {
     hasPermission,
     checkIsAdmin,
 } from "../utils/permissions";
+import YamlEditor from "@/components/rule-editor/YamlEditor.vue";
+import RulePreview from "@/components/rule-editor/RulePreview.vue";
 
 const validateFilePath = (_rule, value, callback) => {
     if (!value) return callback();
@@ -591,191 +431,11 @@ const goBack = () => {
     width: 100%;
 }
 
-.editor-section,
-.preview-section {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-height: 550px;
-}
-
-.section-title {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 16px;
-    font-weight: 600;
-    color: #303133;
-    padding: 0 0 8px 0;
-    border-bottom: 2px solid #1890ff;
-}
-
-.validation-indicator {
-    font-size: 20px;
-}
-
-.validation-indicator .success-icon {
-    color: #67c23a;
-}
-
-.validation-indicator .error-icon {
-    color: #f56c6c;
-}
-
-.editor-wrapper {
-    position: relative;
-    width: 100%;
-}
-
-.yaml-editor {
-    width: 100%;
-    min-height: 450px;
-    font-family: "Monaco", "Menlo", "Consolas", monospace;
-    font-size: 14px;
-    line-height: 1.6;
-    padding: 16px;
-    border: 1px solid #dcdfe6;
-    border-radius: 8px;
-    resize: vertical;
-    background: #f8f9fa;
-    transition: all 0.3s;
-    box-sizing: border-box;
-}
-
-.yaml-editor:focus {
-    outline: none;
-    border-color: #1890ff;
-    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
-}
-
-.validation-panel {
-    margin-top: 12px;
-    padding: 12px;
-    border-radius: 8px;
-    background: #fff;
-    border: 1px solid #e4e7ed;
-}
-
-.validation-status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 600;
-    margin-bottom: 8px;
-}
-
-.validation-status.success {
-    color: #67c23a;
-}
-
-.validation-status.error {
-    color: #f56c6c;
-}
-
-.validation-output {
-    font-family: "Monaco", "Menlo", "Consolas", monospace;
-    font-size: 12px;
-    background: #f8f9fa;
-    padding: 12px;
-    border-radius: 6px;
-    margin: 0;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    max-height: 200px;
-    overflow-y: auto;
-}
-
-.validation-loading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-    color: #909399;
-    font-size: 14px;
-}
-
-.preview-section {
-    position: relative;
-}
-
-.preview-panel {
-    padding: 16px;
-    background: #f8f9fa;
-    border-radius: 8px;
-    max-height: 500px;
-    overflow-y: auto;
-    border: 1px solid #e4e7ed;
-    flex: 1;
-}
-
-.preview-content {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.rule-group-preview {
-    padding: 12px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.rule-group-preview h5 {
-    margin: 0 0 10px 0;
-    color: #1890ff;
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.rule-item-preview {
-    padding: 10px;
-    margin-bottom: 8px;
-    background: #fafafa;
-    border-left: 3px solid #1890ff;
-    border-radius: 4px;
-    font-size: 13px;
-}
-
-.rule-item-preview:last-child {
-    margin-bottom: 0;
-}
-
-.rule-alert-name {
-    margin-bottom: 6px;
-}
-
-.rule-expr {
-    margin-bottom: 6px;
-    font-size: 13px;
-    line-height: 1.4;
-}
-
-.rule-expr code {
-    background: #e6f7ff;
-    padding: 2px 4px;
-    border-radius: 3px;
-    font-family: "Monaco", "Menlo", "Consolas", monospace;
-    font-size: 12px;
-    word-break: break-all;
-}
-
-.rule-for,
-.rule-labels {
-    margin-top: 6px;
-    font-size: 13px;
-    color: #606266;
-}
-
 .action-buttons {
     margin-top: 24px;
     text-align: right;
     padding-top: 16px;
     border-top: 1px solid #e4e7ed;
-}
-
-.full-width {
-    grid-column: 1 / -1;
 }
 
 :deep(.el-form-item) {
@@ -790,23 +450,6 @@ const goBack = () => {
 @media (max-width: 1600px) {
     .editor-preview-layout {
         grid-template-columns: 1fr;
-    }
-
-    .preview-section {
-        position: static;
-    }
-
-    .yaml-editor {
-        min-height: 400px;
-    }
-
-    .preview-panel {
-        max-height: 400px;
-    }
-
-    .editor-section,
-    .preview-section {
-        min-height: auto;
     }
 }
 </style>

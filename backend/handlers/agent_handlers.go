@@ -249,7 +249,7 @@ func (h *AgentHandler) UpdateHeartbeat(c *gin.Context) {
 		"last_heartbeat": time.Now(),
 	}
 
-	// [新增] 动态更新 IP
+	// 动态更新 IP
 	if ip := c.Query("ip_address"); ip != "" {
 		updates["ip_address"] = ip
 	}

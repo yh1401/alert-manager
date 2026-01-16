@@ -1,14 +1,14 @@
 # Rule Group: TestRule
 groups:
-  - name: default-group111222
-    rules:
-      - alert: teest
-        expr: ''
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: ''
-          description: ''
+    - name: test-register
+      rules:
+          - alert: teest
+            expr: ""
+            for: 1m
+            labels:
+                severity: warning
+            annotations:
+                summary: ""
+                description: ""
 
 ---
