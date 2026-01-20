@@ -49,6 +49,7 @@ func InitDB() {
 		&models.NodeSyncStatus{},
 		&models.NodeSyncHistory{},
 		&models.AuditLog{}, // 审计日志表
+		&models.Tag{},      // 标签表
 	); err != nil {
 		log.Fatal("数据库迁移失败: ", err)
 	}

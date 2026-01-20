@@ -371,7 +371,7 @@ func (h *AgentHandler) ListNodes(c *gin.Context) {
 	var nodes []models.Node
 	// admin: see all
 	if h.isAdmin(uid) {
-		if err := h.DB.Order("updated_at desc").Find(&nodes).Error; err != nil {
+		if err := h.DB.Preload("Tags").Order("updated_at desc").Find(&nodes).Error; err != nil {
 			c.JSON(500, gin.H{"error": "db error: " + err.Error()})
 			return
 		}
@@ -394,7 +394,7 @@ func (h *AgentHandler) ListNodes(c *gin.Context) {
 		for _, r := range rows {
 			ids = append(ids, r.ResourceID)
 		}
-		if err := h.DB.Where("id IN ?", ids).Order("updated_at desc").Find(&nodes).Error; err != nil {
+		if err := h.DB.Preload("Tags").Where("id IN ?", ids).Order("updated_at desc").Find(&nodes).Error; err != nil {
 			c.JSON(500, gin.H{"error": "db error: " + err.Error()})
 			return
 		}
@@ -416,6 +416,7 @@ func (h *AgentHandler) ListNodes(c *gin.Context) {
 			"created_at":     n.CreatedAt,
 			"updated_at":     n.UpdatedAt,
 			"status":         status,
+			"tags":           n.Tags,
 		})
 	}
 
@@ -438,7 +439,7 @@ func (h *AgentHandler) GetNodeDetail(c *gin.Context) {
 	}
 
 	var node models.Node
-	if err := h.DB.Where("id = ?", id).First(&node).Error; err != nil {
+	if err := h.DB.Preload("Tags").Where("id = ?", id).First(&node).Error; err != nil {
 		c.JSON(404, gin.H{"error": "node not found"})
 		return
 	}
@@ -488,6 +489,7 @@ func (h *AgentHandler) GetNodeDetail(c *gin.Context) {
 			"updated_at":     node.UpdatedAt,
 			"status":         status,
 			"sync_status":    syncData,
+			"tags":           node.Tags,
 		},
 		"offline_sec": offlineSec,
 	})
@@ -666,4 +668,83 @@ func (h *AgentHandler) hasNodePermission(userID int, nodeID int, action string) 
 	err := h.DB.Where("user_id = ? AND resource_type = ? AND resource_id = ? AND action = ?",
 		userID, "node", nodeID, "write").First(&perm).Error
 	return err == nil
+}
+
+// UpdateNodeTags updates the tags for a specific node.
+func (h *AgentHandler) UpdateNodeTags(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node ID"})
+		return
+	}
+
+	uidVal, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	uid := uidVal.(int)
+
+	// Permission: need write on this node or admin
+	if !h.hasNodePermission(uid, id, "write") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "no write permission"})
+		return
+	}
+
+	var req struct {
+		Tags []string `json:"tags"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	tx := h.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var node models.Node
+	if err := tx.Preload("Tags").First(&node, id).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+
+	// For audit log
+	oldTagNames := make([]string, len(node.Tags))
+	for i, tag := range node.Tags {
+		oldTagNames[i] = tag.Name
+	}
+
+	processedTags, err := h.processTags(req.Tags)
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process tags", "details": err.Error()})
+		return
+	}
+
+	if err := tx.Model(&node).Association("Tags").Replace(processedTags); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update node tags", "details": err.Error()})
+		return
+	}
+
+	// Audit log
+	h.createNodeAuditLog(c, uid, node.ID, node.Name, "update_tags", oldTagNames, req.Tags,
+		fmt.Sprintf("更新节点标签: %s", node.Name))
+
+	tx.Commit()
+
+	// Return the updated node with tags
+	var updatedNode models.Node
+	if err := h.DB.Preload("Tags").First(&updatedNode, id).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "Node tags updated successfully, but failed to retrieve updated node."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Node tags updated successfully", "data": updatedNode})
 }

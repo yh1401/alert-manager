@@ -16,9 +16,17 @@ func Register(r *gin.Engine, db *gorm.DB) {
 	ruleHandler := &handlers.RuleHandler{BaseHandler: baseHandler}
 	permHandler := &handlers.PermissionHandler{BaseHandler: baseHandler}
 	auditHandler := &handlers.AuditHandler{BaseHandler: baseHandler}
+	tagHandler := &handlers.TagHandler{BaseHandler: baseHandler}
 
 	api := r.Group("/api")
 	{
+		// Tag management endpoints
+		tags := api.Group("/tags")
+		tags.Use(middleware.AuthMiddleware())
+		{
+			tags.GET("", tagHandler.ListTags)
+		}
+
 		user := api.Group("/user")
 		{
 			user.POST("/login", authHandler.Login)
@@ -82,6 +90,7 @@ func Register(r *gin.Engine, db *gorm.DB) {
 				nodes.GET("/nodes/:id", agentHandler.GetNodeDetail)
 				nodes.GET("/nodes/:id/history", agentHandler.ListNodeSyncHistory)
 				nodes.POST("/nodes/:id/manual_sync", agentHandler.ManualSync)
+				nodes.POST("/nodes/:id/tags", agentHandler.UpdateNodeTags)
 				nodes.DELETE("/nodes/:id", agentHandler.DeleteNode)
 			}
 		}

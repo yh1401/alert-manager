@@ -12,6 +12,7 @@ type Node struct {
 	LastHeartbeat time.Time `gorm:"column:last_heartbeat"` // 最后心跳时间
 	CreatedAt     time.Time `gorm:"column:created_at"`
 	UpdatedAt     time.Time `gorm:"column:updated_at"`
+	Tags          []*Tag    `gorm:"many2many:node_tags;" json:"tags,omitempty"`
 }
 
 func (Node) TableName() string {

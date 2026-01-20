@@ -109,10 +109,11 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 		return
 	}
 	var req struct {
-		NodeID      int    `json:"node_id" binding:"required"`
-		FilePath    string `json:"file_path" binding:"required"`
-		Name        string `json:"name" binding:"required"`
-		FileContent string `json:"file_content" binding:"required"` // YAML 内容
+		NodeID      int      `json:"node_id" binding:"required"`
+		FilePath    string   `json:"file_path" binding:"required"`
+		Name        string   `json:"name" binding:"required"`
+		FileContent string   `json:"file_content" binding:"required"` // YAML 内容
+		Tags        []string `json:"tags"`                            // 标签
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -125,6 +126,13 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 		return
 	}
 
+	// 处理标签
+	tags, err := h.processTags(req.Tags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process tags", "details": err.Error()})
+		return
+	}
+
 	newRule := models.RuleGroup{
 		NodeID:      req.NodeID,
 		FilePath:    req.FilePath,
@@ -134,6 +142,7 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 		Version:     1,    // 初始版本号
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
+		Tags:        tags,
 	}
 
 	if err := h.DB.Create(&newRule).Error; err != nil {
@@ -149,6 +158,7 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 		"file_content": newRule.FileContent,
 		"is_active":    newRule.IsActive,
 		"version":      newRule.Version,
+		"tags":         req.Tags,
 	}, fmt.Sprintf("创建规则: %s (节点: %d, 路径: %s)", newRule.Name, newRule.NodeID, newRule.FilePath))
 
 	c.JSON(http.StatusOK, gin.H{"message": "Rule created successfully", "id": newRule.ID})
@@ -157,13 +167,14 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 // UpdateRule 更新告警规则 (带版本控制 + 三方合并)
 func (h *RuleHandler) UpdateRule(c *gin.Context) {
 	var req struct {
-		ID          int    `json:"id" binding:"required"`
-		NodeID      int    `json:"node_id"`   // 可选：更新所属节点
-		FilePath    string `json:"file_path"` // 可选：更新目标文件路径
-		Name        string `json:"name"`
-		FileContent string `json:"file_content"`
-		Comment     string `json:"comment"`
-		BaseVersion int    `json:"base_version" binding:"required"` // 乐观锁基线版本
+		ID          int       `json:"id" binding:"required"`
+		NodeID      int       `json:"node_id"`   // 可选：更新所属节点
+		FilePath    string    `json:"file_path"` // 可选：更新目标文件路径
+		Name        string    `json:"name"`
+		FileContent string    `json:"file_content"`
+		Comment     string    `json:"comment"`
+		BaseVersion int       `json:"base_version" binding:"required"` // 乐观锁基线版本
+		Tags        *[]string `json:"tags"`                            // 使用指针以区分 "未提供" 和 "清空"
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -199,10 +210,17 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 	}()
 
 	var rule models.RuleGroup
-	if err := tx.First(&rule, req.ID).Error; err != nil {
+	// Preload tags to get old tags for audit log
+	if err := tx.Preload("Tags").First(&rule, req.ID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Rule not found"})
 		return
+	}
+
+	// For audit log
+	oldTagNames := make([]string, len(rule.Tags))
+	for i, tag := range rule.Tags {
+		oldTagNames[i] = tag.Name
 	}
 
 	// 预先获取 base 版本内容，用于后续三方合并
@@ -358,6 +376,27 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 		return
 	}
 
+	// 3. 更新标签 (如果提供了 tags 字段)
+	var newTagNames []string
+	if req.Tags != nil {
+		processedTags, err := h.processTags(*req.Tags)
+		if err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process tags", "details": err.Error()})
+			return
+		}
+
+		if err := tx.Model(&rule).Association("Tags").Replace(processedTags); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rule tags", "details": err.Error()})
+			return
+		}
+		newTagNames = *req.Tags
+	} else {
+		// If tags field is not provided, keep old tags
+		newTagNames = oldTagNames
+	}
+
 	// 为保证审计记录使用的是数据库最终持久化的值，重新从数据库读取已更新的记录
 	var persisted models.RuleGroup
 	if err := tx.First(&persisted, rule.ID).Error; err != nil {
@@ -373,6 +412,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 		"version":      oldVersion,
 		"node_id":      oldNodeID,
 		"file_path":    oldFilePath,
+		"tags":         oldTagNames,
 	}, map[string]interface{}{
 		"name":         persisted.Name,
 		"file_content": persisted.FileContent,
@@ -380,6 +420,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 		"node_id":      persisted.NodeID,
 		"file_path":    persisted.FilePath,
 		"comment":      req.Comment,
+		"tags":         newTagNames,
 	}, fmt.Sprintf("更新规则: %s (版本: %d -> %d) (节点: %d -> %d, 路径: %s -> %s)", persisted.Name, oldVersion, persisted.Version, oldNodeID, persisted.NodeID, oldFilePath, persisted.FilePath))
 
 	tx.Commit()
@@ -450,38 +491,73 @@ func (h *RuleHandler) GetRuleList(c *gin.Context) {
 	uid := uidVal.(int)
 
 	var rules []models.RuleGroup
+	var err error
+
 	if h.isAdmin(uid) {
-		if err := h.DB.Order("updated_at desc").Find(&rules).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch rules"})
+		err = h.DB.Preload("Tags").Order("updated_at desc").Find(&rules).Error
+	} else {
+		// not admin: filter by permissions
+		var permIDs []int
+		type Row struct{ ResourceID int }
+		var rows []Row
+		if err := h.DB.Model(&models.Permission{}).
+			Select("resource_id").
+			Where("user_id = ? AND resource_type = ? AND action IN ?", uid, "rule", []string{"read", "write"}).
+			Find(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch permissions"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"data": rules})
-		return
+		for _, r := range rows {
+			permIDs = append(permIDs, r.ResourceID)
+		}
+		if len(permIDs) == 0 {
+			c.JSON(http.StatusOK, gin.H{"data": []models.RuleGroup{}})
+			return
+		}
+		err = h.DB.Preload("Tags").Where("id IN ?", permIDs).Order("updated_at desc").Find(&rules).Error
 	}
 
-	// not admin: filter by permissions
-	var permIDs []int
-	type Row struct{ ResourceID int }
-	var rows []Row
-	if err := h.DB.Model(&models.Permission{}).
-		Select("resource_id").
-		Where("user_id = ? AND resource_type = ? AND action IN ?", uid, "rule", []string{"read", "write"}).
-		Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch permissions"})
-		return
-	}
-	for _, r := range rows {
-		permIDs = append(permIDs, r.ResourceID)
-	}
-	if len(permIDs) == 0 {
-		c.JSON(http.StatusOK, gin.H{"data": []models.RuleGroup{}})
-		return
-	}
-	if err := h.DB.Where("id IN ?", permIDs).Order("updated_at desc").Find(&rules).Error; err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch rules"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": rules})
+
+	// 为前端转换数据结构
+	type RuleGroupResponse struct {
+		ID          int       `json:"id"`
+		NodeID      int       `json:"node_id"`
+		FilePath    string    `json:"file_path"`
+		Name        string    `json:"name"`
+		FileContent string    `json:"file_content"`
+		IsActive    bool      `json:"is_active"`
+		Version     int       `json:"version"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Tags        []string  `json:"tags"`
+	}
+
+	response := make([]RuleGroupResponse, len(rules))
+	for i, rule := range rules {
+		tagNames := make([]string, len(rule.Tags))
+		for j, tag := range rule.Tags {
+			tagNames[j] = tag.Name
+		}
+
+		response[i] = RuleGroupResponse{
+			ID:          rule.ID,
+			NodeID:      rule.NodeID,
+			FilePath:    rule.FilePath,
+			Name:        rule.Name,
+			FileContent: rule.FileContent,
+			IsActive:    rule.IsActive,
+			Version:     rule.Version,
+			CreatedAt:   rule.CreatedAt,
+			UpdatedAt:   rule.UpdatedAt,
+			Tags:        tagNames,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": response})
 }
 
 // DeleteRule 删除规则

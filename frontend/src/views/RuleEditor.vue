@@ -6,32 +6,77 @@
                     <span class="title">{{
                         isEditMode ? "编辑规则" : "新建规则"
                     }}</span>
-                    <el-button @click="goBack" type="info" plain size="small">返回列表</el-button>
+                    <el-button @click="goBack" type="info" plain size="small"
+                        >返回列表</el-button
+                    >
                 </div>
             </template>
 
-            <el-form :model="ruleForm" :rules="rules" ref="ruleFormRef" label-width="100px">
+            <el-form
+                :model="ruleForm"
+                :rules="rules"
+                ref="ruleFormRef"
+                label-width="100px"
+            >
                 <el-form-item label="规则名称" prop="name">
-                    <el-input v-model="ruleForm.name" placeholder="输入规则名称"></el-input>
+                    <el-input
+                        v-model="ruleForm.name"
+                        placeholder="输入规则名称"
+                    ></el-input>
                 </el-form-item>
 
                 <el-form-item label="所属节点" prop="node_id">
-                    <el-select v-model="ruleForm.node_id" placeholder="选择节点" filterable clearable>
-                        <el-option v-for="n in nodeOptions" :key="n.id" :label="`${n.name} (${n.ip_address || '-'})`"
-                            :value="n.id" />
+                    <el-select
+                        v-model="ruleForm.node_id"
+                        placeholder="选择节点"
+                        filterable
+                        clearable
+                    >
+                        <el-option
+                            v-for="n in nodeOptions"
+                            :key="n.id"
+                            :label="`${n.name} (${n.ip_address || '-'})`"
+                            :value="n.id"
+                        />
                     </el-select>
                 </el-form-item>
 
                 <el-form-item label="文件路径" prop="file_path">
-                    <el-input v-model="ruleForm.file_path" placeholder="输入绝对路径，例如 /etc/vmalert/rules.yaml"></el-input>
+                    <el-input
+                        v-model="ruleForm.file_path"
+                        placeholder="输入绝对路径，例如 /etc/vmalert/rules.yaml"
+                    ></el-input>
+                </el-form-item>
+
+                <el-form-item label="标签" prop="tags">
+                    <el-select
+                        v-model="ruleForm.tags"
+                        multiple
+                        filterable
+                        allow-create
+                        default-first-option
+                        placeholder="输入并选择或创建标签"
+                        style="width: 100%"
+                    >
+                        <el-option
+                            v-for="tag in allTags"
+                            :key="tag.name"
+                            :label="tag.name"
+                            :value="tag.name"
+                        />
+                    </el-select>
                 </el-form-item>
 
                 <el-form-item label="规则内容" prop="file_content">
                     <!-- 左右分栏布局 -->
                     <div class="editor-preview-layout">
                         <!-- 左侧：编辑器 -->
-                        <YamlEditor v-model="ruleForm.file_content" :validation-result="validationResult"
-                            :is-validating="isValidating" @change="onContentChange" />
+                        <YamlEditor
+                            v-model="ruleForm.file_content"
+                            :validation-result="validationResult"
+                            :is-validating="isValidating"
+                            @change="onContentChange"
+                        />
 
                         <!-- 右侧：预览面板 -->
                         <RulePreview :groups="parsedRules" />
@@ -39,26 +84,38 @@
                 </el-form-item>
 
                 <el-form-item label="版本说明" prop="comment" v-if="isEditMode">
-                    <el-input v-model="ruleForm.comment" type="textarea" :rows="2"
-                        placeholder="描述本次修改的内容（可选）"></el-input>
+                    <el-input
+                        v-model="ruleForm.comment"
+                        type="textarea"
+                        :rows="2"
+                        placeholder="描述本次修改的内容（可选）"
+                    ></el-input>
                 </el-form-item>
             </el-form>
 
             <div class="action-buttons">
-                <el-button type="primary" @click="handleSave" :loading="isSaving"
-                    :disabled="isSaving || isValidating" :title="isValidating ? '规则语法正在校验中，保存已禁用' : ''
-                    ">
+                <el-button
+                    type="primary"
+                    @click="handleSave"
+                    :loading="isSaving"
+                    :disabled="isSaving || isValidating"
+                    :title="
+                        isValidating ? '规则语法正在校验中，保存已禁用' : ''
+                    "
+                >
                     {{
                         isEditMode
                             ? isValidating
                                 ? "验证中..."
                                 : "保存修改"
                             : isValidating
-                                ? "验证中..."
-                                : "创建规则"
+                              ? "验证中..."
+                              : "创建规则"
                     }}
                 </el-button>
-                <el-button @click="goBack" :disabled="isSaving || isValidating">取消</el-button>
+                <el-button @click="goBack" :disabled="isSaving || isValidating"
+                    >取消</el-button
+                >
             </div>
         </el-card>
     </div>
@@ -104,6 +161,7 @@ const ruleForm = reactive({
     file_content: "",
     comment: "",
     base_version: "",
+    tags: [],
 });
 
 const rules = {
@@ -123,6 +181,19 @@ const isValidating = ref(false);
 const isSaving = ref(false);
 const parsedRules = ref([]);
 
+const allTags = ref([]);
+const fetchTags = async () => {
+    try {
+        const res = await axios.get("/api/tags", { headers: getAuthHeaders() });
+        if (res.data.data) {
+            allTags.value = res.data.data;
+        }
+    } catch (err) {
+        console.error("Failed to fetch tags:", err);
+        ElMessage.error("加载标签列表失败");
+    }
+};
+
 let validateTimer = null;
 
 // 获取认证头
@@ -134,6 +205,7 @@ const getAuthHeaders = () => {
 onMounted(async () => {
     // 先加载权限（用于筛选节点下拉）
     await loadUserPermissions();
+    await fetchTags();
 
     // 拉取节点列表，填充 nodeOptions（仅展示可写节点或管理员可见）
     try {
@@ -172,6 +244,7 @@ onMounted(async () => {
                 ruleForm.file_path = rule.file_path || "";
                 ruleForm.file_content = rule.file_content;
                 ruleForm.base_version = rule.version;
+                ruleForm.tags = rule.tags || [];
                 parseYamlContent(rule.file_content);
 
                 // 确保当前规则所属节点出现在 nodeOptions 下拉中（如果用户无权限查看该节点也可编辑，但下拉需显示）
@@ -352,6 +425,7 @@ const handleSave = async () => {
                     file_content: ruleForm.file_content,
                     comment: ruleForm.comment || "更新规则",
                     base_version: ruleForm.base_version,
+                    tags: ruleForm.tags,
                 },
                 {
                     headers: getAuthHeaders(),
@@ -367,6 +441,7 @@ const handleSave = async () => {
                     file_path: ruleForm.file_path,
                     name: ruleForm.name,
                     file_content: ruleForm.file_content,
+                    tags: ruleForm.tags,
                 },
                 {
                     headers: getAuthHeaders(),

@@ -15,6 +15,21 @@
                 <el-option :value="180" label="离线阈值: 180s" />
                 <el-option :value="300" label="离线阈值: 300s" />
             </el-select>
+            <el-select
+                v-model="selectedTags"
+                multiple
+                filterable
+                placeholder="按标签筛选"
+                style="min-width: 200px; margin-left: 10px"
+                clearable
+            >
+                <el-option
+                    v-for="tag in allTags"
+                    :key="tag.id"
+                    :label="tag.name"
+                    :value="tag.name"
+                />
+            </el-select>
             <el-button
                 type="primary"
                 @click="fetchNodes"
@@ -33,6 +48,18 @@
             <el-table-column prop="id" label="ID" width="80" />
             <el-table-column prop="name" label="名称" width="200" />
             <el-table-column prop="ip_address" label="IP 地址" width="180" />
+            <el-table-column label="标签" min-width="180">
+                <template #default="scope">
+                    <el-tag
+                        v-for="tag in scope.row.tags"
+                        :key="tag.id"
+                        size="small"
+                        style="margin-right: 5px"
+                    >
+                        {{ tag.name }}
+                    </el-tag>
+                </template>
+            </el-table-column>
             <el-table-column label="状态" width="120">
                 <template #default="scope">
                     <el-tag
@@ -82,6 +109,18 @@
                     />
                     <el-button
                         link
+                        type="warning"
+                        size="small"
+                        @click="openTagDialog(scope.row)"
+                        v-if="canWrite(scope.row)"
+                        >编辑标签</el-button
+                    >
+                    <el-divider
+                        direction="vertical"
+                        v-if="canWrite(scope.row)"
+                    />
+                    <el-button
+                        link
                         type="danger"
                         size="small"
                         @click="deleteNode(scope.row)"
@@ -91,6 +130,35 @@
                 </template>
             </el-table-column>
         </el-table>
+
+        <el-dialog v-model="isTagDialogVisible" title="编辑标签" width="400px">
+            <el-select
+                v-model="currentNodeTags"
+                multiple
+                filterable
+                allow-create
+                default-first-option
+                placeholder="输入并选择或创建标签"
+                style="width: 100%"
+            >
+                <el-option
+                    v-for="tag in allTags"
+                    :key="tag.name"
+                    :label="tag.name"
+                    :value="tag.name"
+                />
+            </el-select>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button @click="isTagDialogVisible = false"
+                        >取消</el-button
+                    >
+                    <el-button type="primary" @click="updateNodeTags">
+                        保存
+                    </el-button>
+                </span>
+            </template>
+        </el-dialog>
     </div>
 </template>
 
@@ -111,6 +179,11 @@ const loading = ref(false);
 const search = ref("");
 const offlineSec = ref(180);
 const isAdmin = ref(false);
+const allTags = ref([]);
+const selectedTags = ref([]);
+const isTagDialogVisible = ref(false);
+const currentNode = ref(null);
+const currentNodeTags = ref([]);
 let poller = null;
 
 const formatDate = (d) => {
@@ -121,15 +194,40 @@ const formatDate = (d) => {
 
 const filtered = computed(() => {
     const s = (search.value || "").toLowerCase();
-    return list.value.filter(
+    let data = list.value.filter(
         (x) =>
             !s ||
             (x.name || "").toLowerCase().includes(s) ||
             (x.ip_address || "").toLowerCase().includes(s),
     );
+
+    if (selectedTags.value.length > 0) {
+        data = data.filter((row) => {
+            if (!row.tags || row.tags.length === 0) {
+                return false;
+            }
+            return selectedTags.value.every((selectedTag) =>
+                (row.tags || []).some((tag) => tag.name === selectedTag),
+            );
+        });
+    }
+
+    return data;
 });
 
 const getAuthHeaders = () => ({ Authorization: localStorage.getItem("token") });
+
+const fetchTags = async () => {
+    try {
+        const res = await axios.get("/api/tags", { headers: getAuthHeaders() });
+        if (res.data.data) {
+            allTags.value = res.data.data;
+        }
+    } catch (err) {
+        console.error("Failed to fetch tags:", err);
+        ElMessage.error("加载标签列表失败");
+    }
+};
 
 const fetchNodes = async () => {
     loading.value = true;
@@ -143,6 +241,28 @@ const fetchNodes = async () => {
         ElMessage.error(err.response?.data?.error || "加载节点失败");
     } finally {
         loading.value = false;
+    }
+};
+
+const openTagDialog = (node) => {
+    currentNode.value = node;
+    currentNodeTags.value = node.tags ? node.tags.map((t) => t.name) : [];
+    isTagDialogVisible.value = true;
+};
+
+const updateNodeTags = async () => {
+    if (!currentNode.value) return;
+    try {
+        await axios.post(
+            `/api/agent/nodes/${currentNode.value.id}/tags`,
+            { tags: currentNodeTags.value },
+            { headers: getAuthHeaders() },
+        );
+        ElMessage.success("标签更新成功");
+        isTagDialogVisible.value = false;
+        fetchNodes();
+    } catch (err) {
+        ElMessage.error(err.response?.data?.error || "更新标签失败");
     }
 };
 
@@ -219,6 +339,7 @@ const stopPoller = () => {
 onMounted(async () => {
     await loadUserPermissions();
     isAdmin.value = checkIsAdmin();
+    await fetchTags();
     fetchNodes();
     // 每 30s 自动刷新一次节点列表
     poller = setInterval(fetchNodes, 30000);

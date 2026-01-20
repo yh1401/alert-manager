@@ -37,6 +37,21 @@
                 style="max-width: 300px"
                 @input="handleSearch"
             />
+            <el-select
+                v-model="selectedTags"
+                multiple
+                filterable
+                placeholder="按标签筛选"
+                style="min-width: 200px"
+                clearable
+            >
+                <el-option
+                    v-for="tag in allTags"
+                    :key="tag.id"
+                    :label="tag.name"
+                    :value="tag.name"
+                />
+            </el-select>
             <el-button type="default" @click="resetSearch">重置</el-button>
         </div>
 
@@ -54,6 +69,18 @@
                 min-width="220"
             />
             <el-table-column prop="name" label="规则名称" min-width="160" />
+            <el-table-column prop="tags" label="标签" min-width="180">
+                <template #default="scope">
+                    <el-tag
+                        v-for="tag in scope.row.tags"
+                        :key="tag"
+                        size="small"
+                        style="margin-right: 5px"
+                    >
+                        {{ tag }}
+                    </el-tag>
+                </template>
+            </el-table-column>
             <el-table-column
                 prop="version"
                 label="版本"
@@ -130,22 +157,56 @@ const isAdmin = ref(false);
 const searchType = ref("name"); // id | name | node_id | file_path
 const searchValue = ref("");
 
+// 标签筛选
+const allTags = ref([]);
+const selectedTags = ref([]);
+
+const fetchTags = async () => {
+    try {
+        const res = await axios.get("/api/tags", { headers: getAuthHeaders() });
+        if (res.data.data) {
+            allTags.value = res.data.data;
+        }
+    } catch (err) {
+        console.error("Failed to fetch tags:", err);
+        ElMessage.error("加载标签列表失败");
+    }
+};
+
 // 搜索过滤结果
 const filteredTableData = computed(() => {
-    if (!searchValue.value) return tableData.value;
-    const query = searchValue.value.toLowerCase();
-    return tableData.value.filter((row) => {
-        if (searchType.value === "id") {
-            return row.id?.toString().includes(query);
-        } else if (searchType.value === "name") {
-            return (row.name || "").toLowerCase().includes(query);
-        } else if (searchType.value === "node_id") {
-            return (row.node_id || "").toString().includes(query);
-        } else if (searchType.value === "file_path") {
-            return (row.file_path || "").toLowerCase().includes(query);
-        }
-        return true;
-    });
+    let data = tableData.value;
+
+    // 文本搜索
+    if (searchValue.value) {
+        const query = searchValue.value.toLowerCase();
+        data = data.filter((row) => {
+            if (searchType.value === "id") {
+                return row.id?.toString().includes(query);
+            } else if (searchType.value === "name") {
+                return (row.name || "").toLowerCase().includes(query);
+            } else if (searchType.value === "node_id") {
+                return (row.node_id || "").toString().includes(query);
+            } else if (searchType.value === "file_path") {
+                return (row.file_path || "").toLowerCase().includes(query);
+            }
+            return true;
+        });
+    }
+
+    // 标签筛选
+    if (selectedTags.value.length > 0) {
+        data = data.filter((row) => {
+            if (!row.tags || row.tags.length === 0) {
+                return false;
+            }
+            return selectedTags.value.every((selectedTag) =>
+                (row.tags || []).includes(selectedTag),
+            );
+        });
+    }
+
+    return data;
 });
 
 // 表单数据占位（仅用于兼容 YAML->form 切换逻辑）
@@ -187,6 +248,7 @@ const handleSearch = () => {
 const resetSearch = () => {
     searchValue.value = "";
     searchType.value = "name";
+    selectedTags.value = [];
 };
 
 const handleCreate = () => {
@@ -238,6 +300,7 @@ const canWrite = (row) => {
 onMounted(async () => {
     await loadUserPermissions();
     isAdmin.value = checkIsAdmin();
+    fetchTags();
     fetchData().then(() => {
         // 初始化搜索参数（支持从节点列表跳转带 query）
         if (route.query.searchType && route.query.searchValue) {

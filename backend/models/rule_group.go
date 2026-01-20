@@ -13,6 +13,7 @@ type RuleGroup struct {
 	Version     int       `gorm:"column:version" json:"version"` // 当前版本号
 	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt   time.Time `gorm:"column:updated_at" json:"updated_at"`
+	Tags        []*Tag    `gorm:"many2many:rule_group_tags;" json:"tags,omitempty"`
 }
 
 func (RuleGroup) TableName() string {
