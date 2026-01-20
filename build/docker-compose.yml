@@ -1,0 +1,54 @@
+version: "3.8"
+
+services:
+    postgres:
+        image: postgres:13-alpine
+        container_name: am-postgres
+        environment:
+            POSTGRES_DB: alert_manager
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: 123456 # For production, use secrets or a .env file
+        ports:
+            # Expose postgres on the host for direct access if needed for debugging
+            - "5432:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U postgres -d alert_manager"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+        restart: unless-stopped
+
+    backend:
+        build:
+            context: ../backend
+            dockerfile: Dockerfile
+        container_name: am-backend
+        ports:
+            - "8080:8080"
+        environment:
+            # This DSN points to the 'postgres' service, which is reachable by its service name
+            # on the Docker-managed network.
+            - DB_DSN=host=postgres user=postgres password=123456 dbname=alert_manager port=5432 sslmode=disable TimeZone=Asia/Shanghai
+            - ADMIN_USER=admin
+            - ADMIN_PASSWORD=admin
+        depends_on:
+            postgres:
+                condition: service_healthy
+        restart: unless-stopped
+
+    frontend:
+        build:
+            context: ../frontend
+            dockerfile: Dockerfile
+        container_name: am-frontend
+        ports:
+            - "8081:80" # Map host port 8081 to the container's Nginx port 80
+        depends_on:
+            - backend
+        restart: unless-stopped
+        # The nginx.conf inside the frontend image proxies API calls to http://backend:8080
+
+volumes:
+    postgres_data:
