@@ -143,6 +143,7 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 		Tags:        tags,
+		Comment:     "创建规则",
 	}
 
 	if err := h.DB.Create(&newRule).Error; err != nil {
@@ -310,7 +311,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 		Name:        rule.Name,
 		FileContent: rule.FileContent,
 		Version:     rule.Version,
-		Comment:     req.Comment,
+		Comment:     rule.Comment,
 		CreatedAt:   time.Now(),
 	}
 
@@ -354,6 +355,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 		"updated_at":   time.Now(),
 		"node_id":      newNodeID,
 		"file_path":    newFilePath,
+		"comment":      req.Comment,
 	}
 
 	result := tx.Model(&rule).Where("version = ?", oldVersion).Updates(updates)
@@ -651,7 +653,7 @@ func (h *RuleHandler) GetRuleVersions(c *gin.Context) {
 		"file_content":  rule.FileContent,
 		"is_current":    true,
 		"created_at":    rule.UpdatedAt,
-		"comment":       "[Current Version]",
+		"comment":       rule.Comment,
 	}
 
 	// 构建响应数据

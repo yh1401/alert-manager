@@ -14,6 +14,7 @@ type RuleGroup struct {
 	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt   time.Time `gorm:"column:updated_at" json:"updated_at"`
 	Tags        []*Tag    `gorm:"many2many:rule_group_tags;" json:"tags,omitempty"`
+	Comment     string    `gorm:"column:comment" json:"comment"`
 }
 
 func (RuleGroup) TableName() string {

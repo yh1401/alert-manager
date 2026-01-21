@@ -174,6 +174,16 @@ func (h *AgentHandler) ReportSyncStatus(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error: " + err.Error()})
 			return
 		}
+
+		// 写入审计日志
+		var node models.Node
+		if res := h.DB.First(&node, status.NodeID); res.Error == nil {
+			desc := fmt.Sprintf("同步报告: 拉取=%s, 重载=%s", status.FetchStatus, status.ReloadStatus)
+			if status.ReloadStatus == "failed" || status.FetchStatus == "failed" {
+				desc += fmt.Sprintf(" | 错误: %s", status.ErrorMsg)
+			}
+			h.createNodeAuditLog(c, 0, status.NodeID, node.Name, "report_sync", nil, status, desc)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -319,26 +329,13 @@ func (h *AgentHandler) RegisterNode(c *gin.Context) {
 			Version:     1,
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
+			Comment:     "随节点注册一齐注册（Auto-imported during node registration）",
 		}
 
 		if err := h.DB.Create(&rule).Error; err != nil {
 			fmt.Printf("Error creating initial rule for node %d: %v\n", newNode.ID, err)
 			continue
 		}
-
-		// 创建初始版本历史
-		version := models.RuleGroupVersion{
-			RuleGroupID: rule.ID,
-			NodeID:      newNode.ID,
-			FilePath:    rule.FilePath,
-			Name:        rule.Name,
-			FileContent: rule.FileContent,
-			Version:     rule.Version,
-			Comment:     "Auto-imported during node registration",
-			CreatedAt:   time.Now(),
-			CreatedBy:   "system",
-		}
-		h.DB.Create(&version)
 
 		// 记录规则创建审计日志
 		h.createRuleAuditLog(c, 0, rule.ID, rule.Name, "create", nil, map[string]interface{}{
