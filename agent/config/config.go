@@ -21,6 +21,7 @@ func (s *stringSliceFlag) Set(v string) error {
 var GlobalConfig = &Config{}
 
 type Config struct {
+	Name          string
 	BackendURL    string
 	NodeID        string
 	VMAlertURL    string
@@ -35,6 +36,7 @@ type Config struct {
 }
 
 func ParseFlags() {
+	flag.StringVar(&GlobalConfig.Name, "name", "", "Agent 启动时指定的名字，如果为空则使用 hostname")
 	flag.StringVar(&GlobalConfig.BackendURL, "backend", "http://localhost:8080", "后端服务地址")
 	flag.StringVar(&GlobalConfig.VMAlertURL, "vmalert_url", "http://localhost:8880", "vmalert 服务地址")
 	flag.DurationVar(&GlobalConfig.PollInterval, "poll_interval", 10*time.Second, "配置拉取间隔")

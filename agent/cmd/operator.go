@@ -238,6 +238,10 @@ func GetOrRegisterIdentity() error {
 	// 2. 本地无身份，向后端注册
 	log.Println("⚠️ 未找到本地身份，正在向后端注册...")
 	hostname, _ := os.Hostname()
+	name := config.GlobalConfig.Name
+	if name == "" {
+		name = hostname
+	}
 	ip := GetLocalIP()
 
 	// 收集本地规则文件
@@ -247,7 +251,7 @@ func GetOrRegisterIdentity() error {
 	}
 
 	reqBody := map[string]interface{}{
-		"hostname":   hostname,
+		"hostname":   name,
 		"ip_address": ip,
 		"files":      files,
 	}
