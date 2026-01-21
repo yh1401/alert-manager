@@ -17,6 +17,7 @@ func Register(r *gin.Engine, db *gorm.DB) {
 	permHandler := &handlers.PermissionHandler{BaseHandler: baseHandler}
 	auditHandler := &handlers.AuditHandler{BaseHandler: baseHandler}
 	tagHandler := &handlers.TagHandler{BaseHandler: baseHandler}
+	statsHandler := &handlers.StatsHandler{BaseHandler: baseHandler}
 
 	api := r.Group("/api")
 	{
@@ -53,6 +54,11 @@ func Register(r *gin.Engine, db *gorm.DB) {
 			admin.GET("/audit/logs/:id", auditHandler.GetAuditLogDetail)        // 获取单条审计日志详情
 			admin.GET("/audit/stats", auditHandler.GetAuditStats)               // 获取审计统计数据
 			admin.POST("/audit/rules/restore", auditHandler.RestoreDeletedRule) // 从审计删除记录恢复规则
+
+			stats := admin.Group("/stats")
+			{
+				stats.GET("/sync_failures", statsHandler.GetNodeSyncFailureStats) // 获取节点同步失败统计数据
+			}
 		}
 
 		rule := api.Group("/rule")
