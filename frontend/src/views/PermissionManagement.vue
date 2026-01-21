@@ -10,23 +10,60 @@
             <el-tabs v-model="activeTab" class="permission-tabs">
                 <!-- 用户列表 -->
                 <el-tab-pane label="用户管理" name="users">
-                    <UserManagementTab :users="users" @refresh="fetchUsers" @view-permissions="viewUserPermissions"
-                        @change-role="changeRole" @batch-auth="batchSetPermissions" />
+                    <UserManagementTab
+                        :users="users"
+                        @refresh="fetchUsers"
+                        @view-permissions="viewUserPermissions"
+                        @change-role="openRoleDialog"
+                        @batch-auth="batchSetPermissions"
+                    />
                 </el-tab-pane>
 
                 <!-- 权限详情 -->
-                <el-tab-pane label="权限详情" name="permissions" v-if="selectedUser">
-                    <PermissionDetailTab :user="selectedUser" :permissions="permissions" @refresh="refreshPermissions"
-                        @remove="removePermission" />
+                <el-tab-pane
+                    label="权限详情"
+                    name="permissions"
+                    v-if="selectedUser"
+                >
+                    <PermissionDetailTab
+                        :user="selectedUser"
+                        :permissions="permissions"
+                        @refresh="refreshPermissions"
+                        @remove="removePermission"
+                    />
                 </el-tab-pane>
 
                 <!-- 批量授权 -->
                 <el-tab-pane label="批量授权" name="batch" v-if="selectedUser">
-                    <BatchPermissionTab :user="selectedUser" @submit-set="submitBatchSet"
-                        @submit-remove="submitBatchRemove" />
+                    <BatchPermissionTab
+                        :user="selectedUser"
+                        @submit-set="submitBatchSet"
+                        @submit-remove="submitBatchRemove"
+                    />
                 </el-tab-pane>
             </el-tabs>
         </el-card>
+
+        <!-- 修改角色弹窗 -->
+        <el-dialog v-model="roleDialogVisible" title="修改角色" width="400px">
+            <el-form v-if="editingUser" label-width="80px">
+                <el-form-item label="用户">
+                    <el-tag type="info">{{ editingUser.username }}</el-tag>
+                </el-form-item>
+                <el-form-item label="新角色">
+                    <el-select v-model="newRoleValue" placeholder="请选择角色">
+                        <el-option label="Admin" value="admin"></el-option>
+                        <el-option label="User" value="user"></el-option>
+                    </el-select>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="roleDialogVisible = false">取消</el-button>
+                <el-button type="primary" @click="handleRoleUpdate"
+                    >确定</el-button
+                >
+            </template>
+        </el-dialog>
     </div>
 </template>
 
@@ -43,6 +80,11 @@ const activeTab = ref("users");
 const users = ref([]);
 const selectedUser = ref(null);
 const permissions = ref([]);
+
+// State for role editing dialog
+const roleDialogVisible = ref(false);
+const editingUser = ref(null);
+const newRoleValue = ref("");
 
 const getToken = () => localStorage.getItem("token");
 
@@ -112,37 +154,33 @@ const removePermission = async (perm) => {
     }
 };
 
-const changeRole = async (user) => {
+const openRoleDialog = (user) => {
+    editingUser.value = user;
+    newRoleValue.value = user.role;
+    roleDialogVisible.value = true;
+};
+
+const handleRoleUpdate = async () => {
+    if (!editingUser.value) return;
+
     try {
-        const newRole = await ElMessageBox.prompt(
-            `修改用户 ${user.username} 的角色`,
-            "提示",
-            {
-                confirmButtonText: "确定",
-                cancelButtonText: "取消",
-                inputValue: user.role,
-                inputPattern: /^(admin|user)$/,
-                inputErrorMessage: "角色必须是 admin 或 user",
-            },
-        );
         await axios.post(
             `${API_BASE}/admin/users/role`,
             {
-                user_id: user.id,
-                role: newRole.value,
+                user_id: editingUser.value.id,
+                role: newRoleValue.value,
             },
             {
                 headers: { Authorization: `Bearer ${getToken()}` },
             },
         );
         ElMessage.success("角色修改成功");
+        roleDialogVisible.value = false;
         fetchUsers();
     } catch (err) {
-        if (err !== "cancel") {
-            ElMessage.error(
-                "修改角色失败: " + (err.response?.data?.error || err.message),
-            );
-        }
+        ElMessage.error(
+            "修改角色失败: " + (err.response?.data?.error || err.message),
+        );
     }
 };
 

@@ -4,3 +4,4 @@
 backend/tools/promtool/
 *.md
 *.log
+test/
