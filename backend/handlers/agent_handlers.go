@@ -397,23 +397,69 @@ func (h *AgentHandler) ListNodes(c *gin.Context) {
 		}
 	}
 
+	// ----
+	// 获取最近一次有意义的同步信息
+	historyMap := make(map[int]*models.NodeSyncHistory)
+	if len(nodes) > 0 {
+		nodeIDs := make([]int, len(nodes))
+		for i, n := range nodes {
+			nodeIDs[i] = n.ID
+		}
+
+		boringStatuses := []string{"not_modified", "unchanged", "skipped"}
+		var histories []models.NodeSyncHistory
+
+		err := h.DB.Raw(`
+            SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER(PARTITION BY node_id ORDER BY created_at DESC) as rn
+                FROM node_sync_histories
+                WHERE node_id IN (?)
+                AND (fetch_status NOT IN ? OR reload_status NOT IN ?)
+            ) t WHERE rn = 1
+        `, nodeIDs, boringStatuses, boringStatuses).Scan(&histories).Error
+
+		if err != nil {
+			c.JSON(500, gin.H{"error": "db error while fetching histories: " + err.Error()})
+			return
+		}
+
+		for i := range histories {
+			historyMap[histories[i].NodeID] = &histories[i]
+		}
+	}
+	// ----
+
 	// 计算状态
 	now := time.Now()
-	resp := make([]gin.H, 0, len(nodes))
+
+	type NodeInfo struct {
+		ID                        int                     `json:"id"`
+		Name                      string                  `json:"name"`
+		IPAddress                 string                  `json:"ip_address"`
+		LastHeartbeat             time.Time               `json:"last_heartbeat"`
+		CreatedAt                 time.Time               `json:"created_at"`
+		UpdatedAt                 time.Time               `json:"updated_at"`
+		Status                    string                  `json:"status"`
+		Tags                      []*models.Tag           `json:"tags,omitempty"`
+		LastMeaningfulSyncHistory *models.NodeSyncHistory `json:"last_meaningful_sync_history,omitempty"`
+	}
+
+	resp := make([]NodeInfo, 0, len(nodes))
 	for _, n := range nodes {
 		status := "offline"
 		if !n.LastHeartbeat.IsZero() && now.Sub(n.LastHeartbeat).Seconds() < float64(offlineSec) {
 			status = "online"
 		}
-		resp = append(resp, gin.H{
-			"id":             n.ID,
-			"name":           n.Name,
-			"ip_address":     n.IPAddress,
-			"last_heartbeat": n.LastHeartbeat,
-			"created_at":     n.CreatedAt,
-			"updated_at":     n.UpdatedAt,
-			"status":         status,
-			"tags":           n.Tags,
+		resp = append(resp, NodeInfo{
+			ID:                        n.ID,
+			Name:                      n.Name,
+			IPAddress:                 n.IPAddress,
+			LastHeartbeat:             n.LastHeartbeat,
+			CreatedAt:                 n.CreatedAt,
+			UpdatedAt:                 n.UpdatedAt,
+			Status:                    status,
+			Tags:                      n.Tags,
+			LastMeaningfulSyncHistory: historyMap[n.ID],
 		})
 	}
 

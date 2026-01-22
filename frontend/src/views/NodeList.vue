@@ -37,6 +37,21 @@
                 style="margin-left: 10px"
                 >刷新</el-button
             >
+            <el-button
+                @click="showOnlyUnread = !showOnlyUnread"
+                :type="showOnlyUnread ? 'warning' : 'default'"
+                style="margin-left: auto"
+            >
+                {{ showOnlyUnread ? "查看全部" : "只看未读" }}
+            </el-button>
+            <el-button
+                @click="markAllAsRead"
+                type="info"
+                plain
+                style="margin-left: 10px"
+            >
+                一键已读
+            </el-button>
         </div>
 
         <el-table
@@ -46,7 +61,19 @@
             class="node-table"
         >
             <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="name" label="名称" width="200" />
+            <el-table-column prop="name" label="名称" width="200">
+                <template #default="scope">
+                    <el-badge
+                        :is-dot="
+                            hasSyncError(scope.row) &&
+                            !readNodeIDs.has(scope.row.id)
+                        "
+                        class="item"
+                    >
+                        {{ scope.row.name }}
+                    </el-badge>
+                </template>
+            </el-table-column>
             <el-table-column prop="ip_address" label="IP 地址" width="180" />
             <el-table-column label="标签" min-width="180">
                 <template #default="scope">
@@ -69,6 +96,19 @@
                     >
                         {{ scope.row.status === "online" ? "在线" : "离线" }}
                     </el-tag>
+                </template>
+            </el-table-column>
+            <el-table-column label="最后有效同步状态" width="200">
+                <template #default="scope">
+                    <div
+                        v-if="scope.row.last_meaningful_sync_history"
+                        v-html="
+                            formatSyncStatus(
+                                scope.row.last_meaningful_sync_history,
+                            )
+                        "
+                    ></div>
+                    <span v-else>-</span>
                 </template>
             </el-table-column>
             <el-table-column prop="last_heartbeat" label="最后心跳" width="200">
@@ -186,6 +226,17 @@ const currentNode = ref(null);
 const currentNodeTags = ref([]);
 let poller = null;
 
+// unread feature
+const showOnlyUnread = ref(false);
+const readNodeIDs = ref(new Set());
+const hasSyncError = (node) => {
+    return (
+        node.last_meaningful_sync_history?.FetchStatus === "failed" ||
+        node.last_meaningful_sync_history?.ReloadStatus === "failed"
+    );
+};
+// end unread feature
+
 const formatDate = (d) => {
     if (!d) return "-";
     const dt = new Date(d);
@@ -212,8 +263,51 @@ const filtered = computed(() => {
         });
     }
 
+    if (showOnlyUnread.value) {
+        data = data.filter(
+            (row) => hasSyncError(row) && !readNodeIDs.value.has(row.id),
+        );
+    }
+
     return data;
 });
+
+const formatSyncStatus = (history) => {
+    if (!history) return "-";
+
+    const fetchFailed = history.FetchStatus === "failed";
+    const reloadFailed = history.ReloadStatus === "failed";
+
+    let fetchHtml = `<span>下载: <strong style='color: ${
+        fetchFailed ? "red" : "green"
+    }'>${history.FetchStatus}</strong></span>`;
+
+    let reloadHtml = `<span>重载: <strong style='color: ${
+        reloadFailed ? "red" : "green"
+    }'>${history.ReloadStatus}</strong></span>`;
+
+    return `${fetchHtml}<br>${reloadHtml}<br><span style='font-size: 12px; color: #888'>${formatDate(history.CreatedAt)}</span>`;
+};
+
+const markAllAsRead = () => {
+    let markedCount = 0;
+    list.value.forEach((node) => {
+        if (hasSyncError(node) && !readNodeIDs.value.has(node.id)) {
+            readNodeIDs.value.add(node.id);
+            markedCount++;
+        }
+    });
+
+    if (markedCount > 0) {
+        localStorage.setItem(
+            "readNodeIDs",
+            JSON.stringify(Array.from(readNodeIDs.value)),
+        );
+        ElMessage.success(`已将 ${markedCount} 个节点的错误标记为已读`);
+    } else {
+        ElMessage.info("没有未读的错误节点");
+    }
+};
 
 const getAuthHeaders = () => ({ Authorization: localStorage.getItem("token") });
 
@@ -275,6 +369,13 @@ const viewRules = (row) => {
 };
 
 const viewDetail = (row) => {
+    if (hasSyncError(row)) {
+        readNodeIDs.value.add(row.id);
+        localStorage.setItem(
+            "readNodeIDs",
+            JSON.stringify(Array.from(readNodeIDs.value)),
+        );
+    }
     router.push(`/nodes/${row.id}`);
 };
 
@@ -337,6 +438,11 @@ const stopPoller = () => {
 };
 
 onMounted(async () => {
+    const savedReadNodeIDs = localStorage.getItem("readNodeIDs");
+    if (savedReadNodeIDs) {
+        readNodeIDs.value = new Set(JSON.parse(savedReadNodeIDs));
+    }
+
     await loadUserPermissions();
     isAdmin.value = checkIsAdmin();
     await fetchTags();
