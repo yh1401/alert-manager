@@ -190,19 +190,39 @@ func CollectLocalRules() ([]filePayload, error) {
 }
 
 func ReloadVMAlert() (bool, string) {
-	url := fmt.Sprintf("%s/-/reload", config.GlobalConfig.VMAlertURL)
-	resp, err := http.Post(url, "", nil)
-	if err != nil {
-		msg := fmt.Sprintf("重载 vmalert 失败: %v", err)
-		log.Printf("⚠️ %s", msg)
-		return false, msg
-	}
-	defer resp.Body.Close()
+	var lastMsg string
+	err := WithRetry(3, 2*time.Second, func() (shouldRetry bool, err error) {
+		url := fmt.Sprintf("%s/-/reload", config.GlobalConfig.VMAlertURL)
 
-	if resp.StatusCode != http.StatusOK {
-		msg := fmt.Sprintf("vmalert 重载返回非 200 状态: %s", resp.Status)
-		log.Printf("⚠️ %s", msg)
-		return false, msg
+		// Set a timeout for the reload request itself
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Post(url, "application/json", nil)
+
+		if err != nil {
+			lastMsg = fmt.Sprintf("重载 vmalert 请求失败: %v", err)
+			return true, fmt.Errorf(lastMsg) // Network errors are retryable
+		}
+		defer resp.Body.Close()
+
+		// 5xx errors from vmalert are potentially transient, so we should retry.
+		if resp.StatusCode >= 500 {
+			lastMsg = fmt.Sprintf("vmalert 重载返回服务器错误: %s", resp.Status)
+			return true, fmt.Errorf(lastMsg) // Server errors are retryable
+		}
+
+		// 4xx or other non-200 errors are likely configuration issues, not retryable.
+		if resp.StatusCode != http.StatusOK {
+			lastMsg = fmt.Sprintf("vmalert 重载返回非 200 状态: %s", resp.Status)
+			return false, fmt.Errorf(lastMsg) // Non-retryable error
+		}
+
+		return false, nil // Success
+	})
+
+	if err != nil {
+		// Log the final error message after all retries have failed.
+		log.Printf("⚠️ %s", lastMsg)
+		return false, lastMsg
 	}
 
 	log.Println("✅ vmalert 重载成功")
