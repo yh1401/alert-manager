@@ -41,7 +41,7 @@ func NewAgentHandler() *AgentHandler {
 func (h *AgentHandler) ServeAgentBinary(c *gin.Context) {
 	// 文件路径：在仓库中我们把二进制放在 backend/static/agent/agent
 	// 生产部署时请确保可执行程序的工作目录包含该 static 目录，或改为绝对路径
-	filePath := "static/agent/agent"
+	filePath := "static/agent/agent_alert_rules"
 
 	// 检查文件是否存在
 	info, err := os.Stat(filePath)

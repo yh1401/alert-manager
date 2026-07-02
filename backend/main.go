@@ -24,8 +24,8 @@ func main() {
 	routes.Register(r, global.DB)
 
 	// 3. 启动服务
-	log.Println("服务启动在 :8080")
-	if err := r.Run(":8080"); err != nil {
+	log.Println("服务启动在 :30333")
+	if err := r.Run(":30333"); err != nil {
 		log.Fatal(err)
 	}
 }

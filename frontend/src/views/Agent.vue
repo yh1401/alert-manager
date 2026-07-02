@@ -24,8 +24,6 @@
                 >
             </section>
 
-            <el-divider />
-
             <section class="install">
                 <h3>快速安装（Linux）</h3>
                 <ol>
@@ -36,93 +34,64 @@
                     </li>
                     <li>赋予可执行权限并移动到可执行路径并运行：</li>
                 </ol>
+
                 <el-card class="snippet">
                     <pre><code>chmod +x /tmp/agent
 sudo mv /tmp/agent /usr/local/bin/alert-agent
 /usr/local/bin/alert-agent --help
 
 # 常用参数（可省略则使用默认值）
-# -backend          后端地址，默认 http://localhost:8080
-# -vmalert_url      vmalert 地址，默认 http://localhost:8880
-# -poll_interval    配置拉取间隔，默认 10s
-# -heartbeat_interval 心跳间隔，默认 30s
-# -rule_path        规则文件或目录，可多次指定，默认 ./rules.yaml
-# -rules_file       （兼容旧参数）首个规则文件路径，默认 ./rules.yaml
-# -identity_file    节点身份文件，默认 ./agent-state.yaml
-# -log_file         日志文件，默认 ./agent.log
-# -log_max_age      日志保留天数，默认 7
+# -backend              后端地址，默认 http://localhost:8080
+#                       可以只填写端口（例如 :8080）或完整 URL（http://host:port）
+# -vmalert_url          vmalert 地址，默认 http://localhost:8880
+#                       可以只填写端口（例如 :8880）或完整 URL（http://host:port）
+# -reload_url           vmalert reload 路径，输入完整的api路径
+# -poll_interval        配置拉取间隔，默认 10s
+# -heartbeat_interval   心跳间隔，默认 30s
+# -rule_path            规则文件或目录，可多次指定，默认 ./rules.yaml
+# -rules_file           （兼容旧参数）首个规则文件路径，默认 ./rules.yaml
+# -identity_file        节点身份文件，默认 ./agent-state.yaml
+# -log_file             日志文件，默认 ./agent.log
+# -log_max_age          日志保留天数，默认 7
 
-# 示例：指定分组、后台地址、心跳/拉取间隔
-./agent \
-  -backend http://localhost:8080 \
+# 重要提示：
+# 1) 规则文件的“注册”仅在 agent 第一次向后端注册时生效（即首次注册时 agent 会把规则信息写入后端）。
+#    如果你在首次注册后修改了规则路径并希望后端重新按该路径记录规则注册信息，
+#    需要在后端删除该 agent 的注册记录并让 agent 重新注册，或在管理界面执行相应重置操作。
+# 2) 如果你的 vmalert reload 接口路径为 /api/reload/ 或相似路径，请将 -reload_url 设置为实际api路径 。
+#    backend 与 vmalert_url 参数可只填写 ip:port（如 127.0.0.1:8080 / 127.0.0.1:8880）以简化配置。
+#
+# 示例：指定分组、后台地址、心跳/拉取间隔（使用端口简写）
+/usr/local/bin/alert-agent \
+  -backend :8080 \
+  -vmalert_url :8880 \
+  -reload_url api \
   -rule_path /etc/vmalert/rules.yaml \
   -rule_path /etc/vmalert/extra.d \
   -heartbeat_interval 30s \
-  -poll_interval 10s
-</code></pre>
+  -poll_interval 10s \
+  -log_file /var/log/alert-agent.log</code></pre>
                 </el-card>
 
-                <h4>使用 systemd 管理（推荐）</h4>
+                <h4>使用 nohup 直接运行（简易）</h4>
                 <p>
-                    创建 systemd 服务文件，例如
-                    <code>/etc/systemd/system/alert-agent.service</code>：
+                    如果不使用进程管理器，可以用 <code>nohup</code> 将 agent
+                    放到后台运行，并把日志重定向到文件：
                 </p>
                 <el-card class="snippet">
-                    <pre><code>[Unit]
-Description=Alert Manager Agent
-After=network.target
+                    <pre><code># 把 agent 以 nohup 后台方式运行（示例）
+sudo mkdir -p /var/log/alert-agent /etc/alert-agent
+sudo chown $(whoami) /var/log/alert-agent
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/alert-agent --config /etc/alert-agent/config.yaml
-Restart=always
-User=root
-
-[Install]
-WantedBy=multi-user.target
-</code></pre>
-                </el-card>
-
-                <p>启用并启动：</p>
-                <el-card class="snippet">
-                    <pre><code>sudo systemctl daemon-reload
-sudo systemctl enable alert-agent
-sudo systemctl start alert-agent
-sudo journalctl -u alert-agent -f
-</code></pre>
+nohup /usr/local/bin/alert-agent \
+  -backend http://YOUR_BACKEND_HOST:8080 \
+  -vmalert_url http://YOUR_VMALERT_HOST:8880 \
+  -reload_url api \
+  -rule_path /etc/alert-agent/rules.yaml \
+  -log_file /var/log/alert-agent/agent.log \
+  > /var/log/alert-agent/agent.log 2>&1 &</code></pre>
                 </el-card>
             </section>
-
-            <el-divider />
-
-            <section class="config">
-                <h3>配置说明</h3>
-                <p>agent 支持通过配置文件或命令行参数设置，例如：</p>
-                <el-card class="snippet">
-                    <pre><code># /etc/alert-agent/config.yaml (示例)
-server:
-  url: "http://YOUR_ALERT_MANAGER_HOST:PORT"
-agent:
-  id: "node-01"            # 可选，不设置时 agent 可能会自生成 id
-  data_dir: "/var/lib/alert-agent"
-logging:
-  level: "info"
-</code></pre>
-                </el-card>
-
-                <p>常见参数：</p>
-                <ul>
-                    <li>
-                        <code>--config &lt;path&gt;</code>：指定配置文件路径
-                    </li>
-                    <li>
-                        <code>--server.url &lt;url&gt;</code
-                        >：直接通过命令行覆盖服务端地址
-                    </li>
-                </ul>
-            </section>
-
-            <el-divider />
 
             <section class="register">
                 <h3>注册与首次连接</h3>
@@ -131,46 +100,14 @@ logging:
                     启动并且能访问后端管理服务时，它会自动注册。查看后端“节点管理”页面可以看到新注册的节点。
                 </p>
                 <p>
+                    规则文件的注册信息只有在 agent
+                    第一次注册时写入后端（请参见上面的“重要提示”）。如果需要修改已注册的规则路径或重新注册，请在后端删除该节点的注册信息后重启
+                    agent。
+                </p>
+                <p>
                     如果你的后端启用了鉴权，需要在 agent
                     配置或启动参数中添加相应的 token 信息。
                 </p>
-            </section>
-
-            <el-divider />
-
-            <section class="advanced">
-                <h3>进阶：在容器 / Kubernetes 中运行</h3>
-                <p>
-                    可以将 agent 以侧车或 DaemonSet 方式运行在 Kubernetes
-                    中。示例（DaemonSet 片段）：
-                </p>
-                <el-card class="snippet">
-                    <pre><code>apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: alert-agent
-spec:
-  selector:
-    matchLabels:
-      app: alert-agent
-  template:
-    metadata:
-      labels:
-        app: alert-agent
-    spec:
-      containers:
-      - name: alert-agent
-        image: your-repo/alert-agent:latest
-        args: ["--config", "/etc/alert-agent/config.yaml"]
-        volumeMounts:
-        - name: config
-          mountPath: /etc/alert-agent
-      volumes:
-      - name: config
-        configMap:
-          name: alert-agent-config
-</code></pre>
-                </el-card>
             </section>
 
             <el-divider />
@@ -181,19 +118,10 @@ spec:
                     <li>
                         确保 agent 能访问后端管理服务的网络（防火墙、代理等）。
                     </li>
-                    <li>
-                        查看 agent 日志（systemd：<code
-                            >journalctl -u alert-agent -f</code
-                        >）。
-                    </li>
+                    <li>查看 agent 日志，在启动参数定义的文件地址</li>
                     <li>
                         若后端需要证书，请在配置中配置 TLS
                         相关选项并确保证书路径正确。
-                    </li>
-                    <li>
-                        如果你使用的是 Windows，请把二进制改名为
-                        <code>alert-agent.exe</code
-                        >，并以服务方式或任务计划启动。
                     </li>
                 </ul>
             </section>
@@ -213,7 +141,7 @@ function parseFilenameFromContentDisposition(cd) {
     if (!cd) return null;
     // filename*=UTF-8''... or filename="..."
     // try filename* first
-    const fnStar = cd.match(/filename\\*=UTF-8''([^;\\n\\r\\s]+)/i);
+    const fnStar = cd.match(/filename\*=UTF-8''([^;\n\r\s]+)/i);
     if (fnStar && fnStar[1]) {
         try {
             // decode percent-encoding
