@@ -1,20 +1,33 @@
 version: "3.8"
 
 services:
-    postgres:
-        image: postgres:13-alpine
-        container_name: am-postgres
+    mysql:
+        image: mysql:8.0
+        container_name: am-mysql
+        command: --default-authentication-plugin=mysql_native_password
         environment:
-            POSTGRES_DB: alert_manager
-            POSTGRES_USER: postgres
-            POSTGRES_PASSWORD: 123456 # For production, use secrets or a .env file
+            MYSQL_DATABASE: devops_alert_rules
+            MYSQL_USER: mysql
+            MYSQL_PASSWORD: 123456
+            MYSQL_ROOT_PASSWORD: 123456 # For production, use secrets or a .env file
+            TZ: Asia/Shanghai
         ports:
-            # Expose postgres on the host for direct access if needed for debugging
-            - "5432:5432"
+            # Expose mysql on the host for direct access if needed for debugging
+            - "3302:3306"
         volumes:
-            - postgres_data:/var/lib/postgresql/data
+            - mysql_data:/var/lib/mysql
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U postgres -d alert_manager"]
+            test:
+                [
+                    "CMD",
+                    "mysqladmin",
+                    "ping",
+                    "-h",
+                    "localhost",
+                    "-u",
+                    "root",
+                    "-p123456",
+                ]
             interval: 5s
             timeout: 5s
             retries: 5
@@ -26,15 +39,15 @@ services:
             dockerfile: Dockerfile
         container_name: am-backend
         ports:
-            - "8080:8080"
+            - "30333:30333"
         environment:
-            # This DSN points to the 'postgres' service, which is reachable by its service name
-            # on the Docker-managed network.
-            - DB_DSN=host=postgres user=postgres password=123456 dbname=alert_manager port=5432 sslmode=disable TimeZone=Asia/Shanghai
+            # DSN for MySQL, pointing to the 'mysql' service
+            - DB_DSN=mysql:123456@tcp(mysql:3306)/devops_alert_rules?charset=utf8mb4&parseTime=True&loc=Local
             - ADMIN_USER=admin
             - ADMIN_PASSWORD=admin
+            - TZ=Asia/Shanghai
         depends_on:
-            postgres:
+            mysql:
                 condition: service_healthy
         restart: unless-stopped
 
@@ -45,10 +58,12 @@ services:
         container_name: am-frontend
         ports:
             - "8081:80" # Map host port 8081 to the container's Nginx port 80
+        environment:
+            - TZ=Asia/Shanghai
         depends_on:
             - backend
         restart: unless-stopped
         # The nginx.conf inside the frontend image proxies API calls to http://backend:8080
 
 volumes:
-    postgres_data:
+    mysql_data:

@@ -128,8 +128,8 @@ func FetchConfig() {
 	saveHashToFile(newHash)
 
 	fetchStatus = "updated"
-	log.Println("✅ 规则已更新，正在重载 vmalert...")
-	ok, reloadErr := ReloadVMAlert()
+	log.Println("✅ 规则已更新，正在重载规则...")
+	ok, reloadErr := Reload()
 	if ok {
 		reloadStatus = "success"
 	} else {
@@ -189,30 +189,37 @@ func CollectLocalRules() ([]filePayload, error) {
 	return results, nil
 }
 
-func ReloadVMAlert() (bool, string) {
+func Reload() (bool, string) {
+	// Use the resolved ReloadURL from config. If empty, skip reload and return a warning.
+	if config.GlobalConfig.ReloadURL == "" {
+		msg := "未配置重载 URL，跳过重载"
+		log.Printf("⚠️ %s", msg)
+		return false, msg
+	}
+
 	var lastMsg string
 	err := WithRetry(3, 2*time.Second, func() (shouldRetry bool, err error) {
-		url := fmt.Sprintf("%s/-/reload", config.GlobalConfig.VMAlertURL)
+		url := config.GlobalConfig.ReloadURL
 
 		// Set a timeout for the reload request itself
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Post(url, "application/json", nil)
 
 		if err != nil {
-			lastMsg = fmt.Sprintf("重载 vmalert 请求失败: %v", err)
+			lastMsg = fmt.Sprintf("重载请求失败: %v", err)
 			return true, fmt.Errorf(lastMsg) // Network errors are retryable
 		}
 		defer resp.Body.Close()
 
-		// 5xx errors from vmalert are potentially transient, so we should retry.
+		// 5xx errors are potentially transient, so we should retry.
 		if resp.StatusCode >= 500 {
-			lastMsg = fmt.Sprintf("vmalert 重载返回服务器错误: %s", resp.Status)
+			lastMsg = fmt.Sprintf("重载返回服务器错误: %s", resp.Status)
 			return true, fmt.Errorf(lastMsg) // Server errors are retryable
 		}
 
-		// 4xx or other non-200 errors are likely configuration issues, not retryable.
-		if resp.StatusCode != http.StatusOK {
-			lastMsg = fmt.Sprintf("vmalert 重载返回非 200 状态: %s", resp.Status)
+		// Treat common successful statuses as success (200, 202, 204). Others are non-retryable.
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNoContent {
+			lastMsg = fmt.Sprintf("重载返回非成功状态: %s", resp.Status)
 			return false, fmt.Errorf(lastMsg) // Non-retryable error
 		}
 
@@ -225,6 +232,6 @@ func ReloadVMAlert() (bool, string) {
 		return false, lastMsg
 	}
 
-	log.Println("✅ vmalert 重载成功")
+	log.Println("✅ 重载成功")
 	return true, ""
 }

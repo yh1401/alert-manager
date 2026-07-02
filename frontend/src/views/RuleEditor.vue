@@ -67,11 +67,26 @@
                     </el-select>
                 </el-form-item>
 
+                <el-form-item label="编辑模式">
+                    <el-radio-group v-model="editorMode" @change="onEditorModeChange">
+                        <el-radio-button label="form">表单模式</el-radio-button>
+                        <el-radio-button label="yaml">YAML 模式</el-radio-button>
+                    </el-radio-group>
+                </el-form-item>
+
                 <el-form-item label="规则内容" prop="file_content">
                     <!-- 左右分栏布局 -->
                     <div class="editor-preview-layout">
-                        <!-- 左侧：编辑器 -->
+                        <!-- 左侧：表单构建器 / YAML 编辑器 -->
+                        <RuleFormBuilder
+                            v-if="editorMode === 'form'"
+                            ref="ruleBuilderRef"
+                            :existing-groups="sourceGroups"
+                            :is-edit-mode="isEditMode"
+                            @change="onBuilderChange"
+                        />
                         <YamlEditor
+                            v-else
                             v-model="ruleForm.file_content"
                             :validation-result="validationResult"
                             :is-validating="isValidating"
@@ -134,6 +149,7 @@ import {
 } from "../utils/permissions";
 import YamlEditor from "@/components/rule-editor/YamlEditor.vue";
 import RulePreview from "@/components/rule-editor/RulePreview.vue";
+import RuleFormBuilder from "@/components/rule-editor/RuleFormBuilder.vue";
 
 const validateFilePath = (_rule, value, callback) => {
     if (!value) return callback();
@@ -150,9 +166,13 @@ const route = useRoute();
 const router = useRouter();
 
 const ruleFormRef = ref(null);
+const ruleBuilderRef = ref(null);
 const isEditMode = computed(() => !!route.params.id);
 const ruleId = computed(() => route.params.id);
 const nodeOptions = ref([]);
+const editorMode = ref("form");
+const formBuilderBaseContent = ref("");
+const latestBuilderPayload = ref(null);
 
 const ruleForm = reactive({
     name: "",
@@ -180,6 +200,27 @@ const validationResult = ref(null);
 const isValidating = ref(false);
 const isSaving = ref(false);
 const parsedRules = ref([]);
+
+const parseGroupsFromYaml = (content) => {
+    if (!content || !content.trim()) {
+        return [];
+    }
+
+    try {
+        const parsed = jsyaml.load(content);
+        if (parsed && Array.isArray(parsed.groups)) {
+            return parsed.groups;
+        }
+        if (Array.isArray(parsed)) {
+            return parsed;
+        }
+        return [];
+    } catch {
+        return [];
+    }
+};
+
+const sourceGroups = computed(() => parseGroupsFromYaml(formBuilderBaseContent.value));
 
 const allTags = ref([]);
 const fetchTags = async () => {
@@ -243,6 +284,7 @@ onMounted(async () => {
                 ruleForm.node_id = rule.node_id || "";
                 ruleForm.file_path = rule.file_path || "";
                 ruleForm.file_content = rule.file_content;
+                formBuilderBaseContent.value = rule.file_content || "";
                 ruleForm.base_version = rule.version;
                 ruleForm.tags = rule.tags || [];
                 parseYamlContent(rule.file_content);
@@ -275,6 +317,82 @@ onMounted(async () => {
         }
     }
 });
+
+const cloneGroups = (groups) => {
+    return JSON.parse(JSON.stringify(groups || []));
+};
+
+const buildYamlFromBuilder = (payload) => {
+    const groups = cloneGroups(sourceGroups.value);
+    let group = groups.find((item) => item.name === payload.groupName);
+
+    if (!group) {
+        group = {
+            name: payload.groupName,
+            rules: [],
+        };
+        groups.push(group);
+    }
+
+    if (payload.groupInterval) {
+        group.interval = payload.groupInterval;
+    }
+
+    if (!Array.isArray(group.rules)) {
+        group.rules = [];
+    }
+
+    group.rules.push(payload.rule);
+
+    return jsyaml.dump(
+        { groups },
+        {
+            lineWidth: -1,
+            noRefs: true,
+            sortKeys: false,
+        },
+    );
+};
+
+const hasDuplicateAlertInSource = (payload) => {
+    const group = sourceGroups.value.find((item) => item.name === payload.groupName);
+    if (!group || !Array.isArray(group.rules)) {
+        return false;
+    }
+    return group.rules.some((rule) => rule.alert === payload.rule.alert);
+};
+
+const syncBuilderContent = (payload, shouldValidate = true) => {
+    latestBuilderPayload.value = payload;
+
+    if (!payload.groupName || !payload.rule.alert || !payload.rule.expr) {
+        ruleForm.file_content = isEditMode.value ? formBuilderBaseContent.value : "";
+        parseYamlContent(ruleForm.file_content);
+        validationResult.value = null;
+        return;
+    }
+
+    ruleForm.file_content = buildYamlFromBuilder(payload);
+    parseYamlContent(ruleForm.file_content);
+    validationResult.value = null;
+
+    if (shouldValidate) {
+        onContentChange();
+    }
+};
+
+const onBuilderChange = (payload) => {
+    syncBuilderContent(payload);
+};
+
+const onEditorModeChange = (mode) => {
+    validationResult.value = null;
+    if (mode === "form" && latestBuilderPayload.value) {
+        syncBuilderContent(latestBuilderPayload.value);
+    } else {
+        parseYamlContent(ruleForm.file_content);
+    }
+};
 
 // 实时验证（带防抖）
 const onContentChange = () => {
@@ -330,23 +448,7 @@ const validateRuleContent = async () => {
 
 // 解析 YAML 用于预览
 const parseYamlContent = (content) => {
-    if (!content || !content.trim()) {
-        parsedRules.value = [];
-        return;
-    }
-
-    try {
-        const parsed = jsyaml.load(content);
-        if (parsed && parsed.groups) {
-            parsedRules.value = parsed.groups;
-        } else if (Array.isArray(parsed)) {
-            parsedRules.value = parsed;
-        } else {
-            parsedRules.value = [];
-        }
-    } catch (e) {
-        parsedRules.value = [];
-    }
+    parsedRules.value = parseGroupsFromYaml(content);
 };
 
 // 保存规则
@@ -357,6 +459,20 @@ const handleSave = async () => {
     } catch {
         ElMessage.warning("请填写完整的表单信息后再保存");
         return;
+    }
+
+    if (editorMode.value === "form") {
+        try {
+            const payload = await ruleBuilderRef.value.validate();
+            if (hasDuplicateAlertInSource(payload)) {
+                ElMessage.error("同一规则组下已存在相同告警名称，请修改告警名称或切到 YAML 模式手动处理");
+                return;
+            }
+            syncBuilderContent(payload, false);
+        } catch (err) {
+            ElMessage.warning(err?.message || "请完善表单化规则配置");
+            return;
+        }
     }
 
     // 阻止在语法校验进行中提交

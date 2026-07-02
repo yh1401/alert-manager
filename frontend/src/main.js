@@ -10,7 +10,7 @@ import "./style.css";
 const app = createApp(App);
 
 // 配置 axios baseURL
-axios.defaults.baseURL = "http://localhost:8080";
+axios.defaults.baseURL = "/";
 
 // 请求拦截器：自动附加 Authorization
 axios.interceptors.request.use(

@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/goccy/go-yaml"
-	"gorm.io/driver/postgres"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -31,7 +31,7 @@ func InitDB() {
 	}
 
 	// 初始化全局 DB
-	global.DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+	global.DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Error), // 只记录错误，不记录 "record not found" 警告
 	})
 	if err != nil {

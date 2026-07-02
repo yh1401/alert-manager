@@ -5,8 +5,8 @@ WORKDIR /app
 
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./
-# Download dependencies
-RUN go mod download
+# Download dependencies with proxy
+RUN GOPROXY=https://goproxy.cn,direct go mod download
 
 # Copy the rest of the source code
 COPY . .

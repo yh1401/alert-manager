@@ -75,7 +75,7 @@ import UserManagementTab from "@/components/permissions/UserManagementTab.vue";
 import PermissionDetailTab from "@/components/permissions/PermissionDetailTab.vue";
 import BatchPermissionTab from "@/components/permissions/BatchPermissionTab.vue";
 
-const API_BASE = "http://localhost:8080/api";
+const API_BASE = "/api";
 const activeTab = ref("users");
 const users = ref([]);
 const selectedUser = ref(null);

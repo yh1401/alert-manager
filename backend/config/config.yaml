@@ -1,2 +1,5 @@
-# PostgreSQL 连接配置
-dsn: "host=127.0.0.1 user=postgres password=123456 dbname=alert_manager port=5432 sslmode=disable TimeZone=Asia/Shanghai"
+# MySql 连接配置
+dsn: "root:root@tcp(127.0.0.1:3306)/devops_alert_rules?charset=utf8mb4&parseTime=True&loc=Local"
+#dsn: "host=127.0.0.1 user=postgres password=123456 dbname=alert_manager port=5432 sslmode=disable TimeZone=Asia/Shanghai"
+server:
+    port: 30333
