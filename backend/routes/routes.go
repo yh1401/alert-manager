@@ -18,6 +18,7 @@ func Register(r *gin.Engine, db *gorm.DB) {
 	auditHandler := &handlers.AuditHandler{BaseHandler: baseHandler}
 	tagHandler := &handlers.TagHandler{BaseHandler: baseHandler}
 	statsHandler := &handlers.StatsHandler{BaseHandler: baseHandler}
+	promHandler := &handlers.PrometheusHandler{BaseHandler: baseHandler}
 
 	api := r.Group("/api")
 	{
@@ -73,6 +74,20 @@ func Register(r *gin.Engine, db *gorm.DB) {
 			rule.GET("/versions", ruleHandler.GetRuleVersions) // 获取版本历史
 			rule.POST("/rollback", ruleHandler.RollbackRule)   // 回滚到指定版本
 			rule.GET("/diff", ruleHandler.GetRuleVersionDiff)  // 获取版本差异
+		}
+
+		// Prometheus 数据获取接口（需要认证）
+		prometheus := api.Group("/prometheus")
+		prometheus.Use(middleware.AuthMiddleware())
+		{
+			prometheus.GET("/health", promHandler.Health)           // Prometheus 健康检查
+			prometheus.GET("/alerts", promHandler.GetAlerts)        // 获取活跃告警
+			prometheus.GET("/rules", promHandler.GetRules)          // 获取规则评估状态
+			prometheus.GET("/targets", promHandler.GetTargets)      // 获取采集目标健康
+			prometheus.GET("/overview", promHandler.GetOverview)    // 获取数据概览
+			prometheus.GET("/query", promHandler.Query)             // 即时 PromQL 查询
+			prometheus.GET("/query_range", promHandler.QueryRange)  // 范围 PromQL 查询
+			prometheus.POST("/clear_cache", promHandler.ClearCache) // 清除缓存
 		}
 
 		// public agent endpoints (called by agents, no JWT)

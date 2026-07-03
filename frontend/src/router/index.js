@@ -68,6 +68,12 @@ const routes = [
                 meta: { title: "权限管理" },
             },
             {
+                path: "prometheus",
+                name: "PrometheusMonitor",
+                component: () => import("../views/PrometheusMonitor.vue"),
+                meta: { title: "Prometheus 监控" },
+            },
+            {
                 path: "audit",
                 name: "AuditLog",
                 component: () => import("../views/AuditLog.vue"),

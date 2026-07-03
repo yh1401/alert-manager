@@ -45,6 +45,7 @@ services:
             - DB_DSN=mysql:123456@tcp(mysql:3306)/devops_alert_rules?charset=utf8mb4&parseTime=True&loc=Local
             - ADMIN_USER=admin
             - ADMIN_PASSWORD=admin
+            - PROMETHEUS_URL=http://host.docker.internal:9090
             - TZ=Asia/Shanghai
         depends_on:
             mysql:
