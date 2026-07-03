@@ -1,2 +1,5 @@
-node_id: "3"
-rules_hash: c6937b3b36f23ce52b7b484c0c3efb6ac4f7bcb39c3b35a36fed019c920ad781
+node_id: "1"
+rules_hash: 06de180bae2cef757dddfc5cf2a0edb5cfd257a39ef05bffd8d8fbcfe9adbfa1
+port: 50242
+reload_backend: vmalert
+reload_url: http://localhost:8880/api/v1/rules/reload
